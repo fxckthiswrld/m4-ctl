@@ -1,0 +1,18 @@
+[project]
+name = "m4-ctl"
+version = "0.1.0"
+description = "Управление Sennheiser Momentum 4 по Bluetooth SPP (GAIA3)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "winrt-Windows.Devices.Bluetooth; sys_platform == 'win32'",
+    "winrt-Windows.Devices.Bluetooth.Rfcomm; sys_platform == 'win32'",
+    "winrt-Windows.Devices.Enumeration; sys_platform == 'win32'",
+    "winrt-Windows.Networking; sys_platform == 'win32'",
+    "winrt-Windows.Networking.Sockets; sys_platform == 'win32'",
+    "winrt-Windows.Storage.Streams; sys_platform == 'win32'",
+    "pyobjc-framework-IOBluetooth; sys_platform == 'darwin'",
+]
+
+[tool.uv]
+package = false

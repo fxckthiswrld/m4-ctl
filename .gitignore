@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Чужие файлы (распакованный APK Sennheiser) — не публикуем
+app/
+apk/
+so/
+build.gradle
+settings.gradle
+*.gradle
