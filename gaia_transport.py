@@ -321,14 +321,37 @@ class MacSppTransport(BaseSppTransport):
             print(f"[mac] открываю RFCOMM канал {channel_id}")
             delegate = Delegate.alloc().init()
             self._delegate = delegate
-            res = dev.openRFCOMMChannelSync_withChannelID_delegate_(channel_id, delegate)
-            print(f"[mac] openRFCOMMChannelSync -> {res}")
-            if isinstance(res, tuple):
-                err, channel = res
-            else:
-                err, channel = res, None
-            if err != 0 or channel is None:
-                print(f"[mac] openRFCOMMChannelSync failed err={err:#x} channel={channel}")
+            rfc_methods = [m for m in dir(dev) if "RFCOMM" in m and "open" in m.lower()]
+            print(f"[mac] методы openRFCOMM: {rfc_methods}")
+            channel = None
+            for m in rfc_methods or [None]:
+                if m is None:
+                    break
+                fn = getattr(dev, m, None)
+                if fn is None:
+                    continue
+                # Пробуем разные сигнатуры: (cid, delegate), (None, cid, delegate), (cid, delegate, None)
+                for args in ((channel_id, delegate), (None, channel_id, delegate), (channel_id, delegate, None)):
+                    try:
+                        res = fn(*args)
+                        print(f"[mac] {m}{[type(a).__name__ for a in args]} -> {res}")
+                        if isinstance(res, tuple):
+                            err, ch = res[0], (res[1] if len(res) > 1 else None)
+                        else:
+                            err, ch = res, None
+                        if err == 0 and ch is not None:
+                            channel = ch
+                            break
+                    except TypeError as te:
+                        print(f"[mac] {m}{[type(a).__name__ for a in args]} TypeError: {te}")
+                        continue
+                    except Exception as e:
+                        print(f"[mac] {m}{[type(a).__name__ for a in args]} err: {e!r}")
+                        continue
+                if channel is not None:
+                    break
+            if channel is None:
+                print(f"[mac] не удалось открыть канал {channel_id}")
                 loop.call_soon_threadsafe(opened.set)
                 return
             self._channel = channel
