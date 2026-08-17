@@ -227,26 +227,15 @@ class MacSppTransport(BaseSppTransport):
 
     def _thread_main(self):
         import Foundation
-        import objc
-        from IOBluetooth import IOBluetoothDevice, IOBluetoothSDPUUID, IOBluetoothRFCOMMChannelDelegate
+        from IOBluetooth import IOBluetoothDevice, IOBluetoothSDPUUID
 
         queue = self._q
         loop = self._loop
+        opened = self._opened
 
         class Delegate(Foundation.NSObject):
-            def initWithChannel_(self, channel):
-                self = super().init()
-                self.channel = channel
-                return self
-
             def rfcommChannelOpenComplete_status_(self, channel, status):
-                loop.call_soon_threadsafe(self._set_opened, status == 0)
-
-            def _set_opened(self, ok):
-                if ok:
-                    self._opened.set()
-                else:
-                    self._opened.set()
+                opened.set()
 
             def rfcommChannelData_data_length_(self, channel, data, length):
                 try:
@@ -259,13 +248,15 @@ class MacSppTransport(BaseSppTransport):
                 loop.call_soon_threadsafe(queue.put_nowait, b"")
 
         try:
-            dev = IOBluetoothDevice.deviceWithAddressString_(self.bt_addr)
+            # IOBluetooth ожидает формат с дефисами: 80-C3-BA-9C-A5-4F
+            dev_addr = self.bt_addr.replace(":", "-")
+            dev = IOBluetoothDevice.deviceWithAddressString_(dev_addr)
             if dev is None:
-                loop.call_soon_threadsafe(self._opened.set)
+                loop.call_soon_threadsafe(opened.set)
                 return
             status = dev.openConnection()
             if status != 0:
-                loop.call_soon_threadsafe(self._opened.set)
+                loop.call_soon_threadsafe(opened.set)
                 return
             self._device = dev
 
@@ -301,7 +292,7 @@ class MacSppTransport(BaseSppTransport):
             if channel_id is None:
                 channel_id = 1
 
-            delegate = Delegate.alloc().initWithChannel_(None)
+            delegate = Delegate.alloc().init()
             self._delegate = delegate
             res = dev.openRFCOMMChannelSync_withChannelID_delegate_(channel_id, delegate)
             if isinstance(res, tuple):
@@ -309,7 +300,7 @@ class MacSppTransport(BaseSppTransport):
             else:
                 err, channel = res, None
             if err != 0 or channel is None:
-                loop.call_soon_threadsafe(self._opened.set)
+                loop.call_soon_threadsafe(opened.set)
                 return
             self._channel = channel
 
@@ -318,7 +309,7 @@ class MacSppTransport(BaseSppTransport):
                     NSDate.dateWithTimeIntervalSinceNow_(0.1)
                 )
         except Exception as e:
-            loop.call_soon_threadsafe(self._opened.set)
+            loop.call_soon_threadsafe(opened.set)
 
     async def send(self, gaia: bytes):
         buf = spp_frame(gaia)
@@ -428,19 +419,33 @@ def _list_paired_windows():
     return [{"name": name, "address": addr} for addr, name in seen.items()]
 
 
+def _mac_attr(obj, attr):
+    """Получить строковое значение атрибута IOBluetooth (PyObjC).
+
+    На новых версиях PyObjC `device.name` / `device.addressString`
+    возвращают native-selector объекты — их нужно вызывать.
+    """
+    try:
+        val = getattr(obj, attr)
+    except Exception:
+        return ""
+    if callable(val):
+        try:
+            val = val()
+        except Exception:
+            return ""
+    return str(val or "")
+
+
 def _list_paired_macos():
     if not HAS_IOBT:
         sys.exit("На macOS нужен PyObjC IOBluetooth: pip install pyobjc-framework-IOBluetooth")
     devs = IOBluetoothDevice.pairedDevices()
     out = []
     for d in devs:
-        try:
-            name = str(d.name or "")
-        except Exception:
-            name = ""
-        try:
-            addr = str(d.addressString or "")
-        except Exception:
-            addr = ""
+        name = _mac_attr(d, "name")
+        addr = _mac_attr(d, "addressString")
+        # Единый формат с двоеточиями, как на Windows
+        addr = addr.replace("-", ":").upper()
         out.append({"name": name, "address": addr})
     return out
