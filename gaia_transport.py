@@ -264,7 +264,7 @@ class MacSppTransport(BaseSppTransport):
                 loop.call_soon_threadsafe(opened.set)
                 return
 
-            sdp_uuid = IOBluetoothSDPUUID.uuidWithUUIDString_(GAIA3_SPP_UUID)
+            sdp_uuid = _mac_sdp_uuid(GAIA3_SPP_UUID)
             channel_id = None
             try:
                 svc = dev.getServiceRecordForUUID_(sdp_uuid)
@@ -449,6 +449,15 @@ def _mac_attr(obj, attr):
         except Exception:
             return ""
     return str(val or "")
+
+
+def _mac_sdp_uuid(uuid_str):
+    """Создать IOBluetoothSDPUUID из строки UUID (имя метода зависит от версии PyObjC)."""
+    for name in ("uuidWithUUIDString_", "uuidWithString_", "UUIDWithUUIDString_"):
+        fn = getattr(IOBluetoothSDPUUID, name, None)
+        if fn is not None:
+            return fn(uuid_str)
+    raise AttributeError(f"не найден метод создания SDP UUID в {dir(IOBluetoothSDPUUID)}")
 
 
 def _list_paired_macos():
