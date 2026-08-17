@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
@@ -82,9 +82,11 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 420,
     height: 860,
-    minWidth: 380,
-    minHeight: 700,
+    resizable: false,
+    maximizable: false,
+    autoHideMenuBar: true,
     title: "Momentum 4 Control",
+    icon: path.join(__dirname, "icon.ico"),
     backgroundColor: "#0d0d10",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -92,6 +94,7 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
+  mainWindow.setMenu(null);
 
   const distIndex = path.join(__dirname, "..", "dist", "index.html");
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -109,6 +112,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
   createWindow();
   startBridge();
 

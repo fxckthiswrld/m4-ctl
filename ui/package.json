@@ -49,6 +49,7 @@
     "directories": {
       "output": "release"
     },
+    "icon": "electron/icon.png",
     "win": {
       "target": [
         "nsis",
