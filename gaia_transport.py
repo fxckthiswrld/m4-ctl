@@ -290,19 +290,23 @@ class MacSppTransport(BaseSppTransport):
                     for svc in services:
                         try:
                             sname = _mac_call(svc, "getServiceName") or _mac_call(svc, "serviceName") or ""
-                            suuid = _mac_call(svc, "getUUID") or _mac_call(svc, "uuid") or ""
                             res = svc.getRFCOMMChannelID_(None)
                             if isinstance(res, tuple):
                                 err, cid = res
                             else:
                                 err, cid = 0, res
-                            print(f"[mac]   svc name={sname!r} uuid={suuid!r} rfcomm={cid} err={err}")
+                            print(f"[mac]   svc name={sname!r} rfcomm={cid} err={err}")
                             if err == 0 and cid and cid > 0:
-                                channel_id = cid
-                                print(f"[mac] channel_id из services: {channel_id}")
-                                break
+                                if channel_id is None:
+                                    channel_id = cid
+                                if "GAIA" in str(sname).upper() or "a2129ff3" in str(sname).lower():
+                                    channel_id = cid
+                                    print(f"[mac] GAIA3 найден по имени: {sname!r} канал {cid}")
+                                    break
                         except Exception:
                             continue
+                    if channel_id is not None:
+                        print(f"[mac] channel_id из services: {channel_id}")
 
             if channel_id is None:
                 print("[mac] SDP не дал канал, перебираю RFCOMM 1..20")
