@@ -19,6 +19,7 @@ GAIA-заголовок: [uint16 vendor BE=0x0495][uint16 cmd BE][payload...]
 
 import argparse
 import asyncio
+import platform
 import sys
 
 try:
@@ -156,6 +157,13 @@ async def run_command(args):
         await asyncio.sleep(1.0)
         await tr.recv(timeout=2.0)
     finally:
+        # На macOS при завершении процесса соединение рвётся. Держим процесс живым,
+        # чтобы наушники остались подключёнными к системе (как на Windows).
+        if platform.system() == "Darwin":
+            try:
+                input("Наушники подключены. Нажмите Enter, чтобы отключить и выйти...")
+            except EOFError:
+                pass
         await tr.close()
 
 

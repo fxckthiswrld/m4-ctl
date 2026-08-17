@@ -213,6 +213,8 @@ class MacSppTransport(BaseSppTransport):
         self._delegate = None
         self._closed = False
         self._opened = threading.Event()
+        self._channel_id = None
+        self._open_done = None
 
     async def connect(self):
         if not HAS_IOBT:
@@ -225,21 +227,19 @@ class MacSppTransport(BaseSppTransport):
             sys.exit("Не удалось открыть RFCOMM-канал GAIA3 на macOS.")
         print("SPP-соединение установлено.")
 
-    def _thread_main(self):
+    def _make_delegate(self):
+        """Создаёт свежий делегат, который шлёт данные в asyncio-очередь."""
         import Foundation
-        from IOBluetooth import IOBluetoothDevice, IOBluetoothSDPUUID
-
         queue = self._q
         loop = self._loop
-        opened = self._opened
-
-        open_done = threading.Event()
+        transport = self
 
         class Delegate(Foundation.NSObject):
             def rfcommChannelOpenComplete_status_(self, channel, status):
                 if status != 0:
                     print(f"[mac] openComplete status={status:#x}")
-                open_done.set()
+                if transport._open_done is not None:
+                    transport._open_done.set()
 
             def rfcommChannelData_data_length_(self, channel, data, length):
                 try:
@@ -249,7 +249,23 @@ class MacSppTransport(BaseSppTransport):
                 loop.call_soon_threadsafe(queue.put_nowait, raw)
 
             def rfcommChannelClosed_(self, channel):
+                print("[mac] канал закрыт")
+                transport._channel = None
                 loop.call_soon_threadsafe(queue.put_nowait, b"")
+
+        self._delegate = Delegate.alloc().init()
+        return self._delegate
+
+    def _thread_main(self):
+        import Foundation
+        from IOBluetooth import IOBluetoothDevice, IOBluetoothSDPUUID
+
+        queue = self._q
+        loop = self._loop
+        opened = self._opened
+        transport = self
+
+        self._open_done = threading.Event()
 
         try:
             # IOBluetooth ожидает формат с дефисами: 80-C3-BA-9C-A5-4F
@@ -328,51 +344,27 @@ class MacSppTransport(BaseSppTransport):
             if channel_id is None:
                 channel_id = 1
                 print("[mac] канал не найден, беру 1")
+            self._channel_id = channel_id
 
             print(f"[mac] открываю RFCOMM канал {channel_id}")
-            delegate = Delegate.alloc().init()
-            self._delegate = delegate
-            rfc_methods = [m for m in dir(dev) if "RFCOMM" in m and "open" in m.lower()]
-            print(f"[mac] методы openRFCOMM: {rfc_methods}")
-            channel = None
-            for m in rfc_methods or [None]:
-                if m is None:
-                    break
-                fn = getattr(dev, m, None)
-                if fn is None:
-                    continue
-                # Пробуем разные сигнатуры: (cid, delegate), (None, cid, delegate), (cid, delegate, None)
-                for args in ((channel_id, delegate), (None, channel_id, delegate), (channel_id, delegate, None)):
-                    try:
-                        res = fn(*args)
-                        print(f"[mac] {m}{[type(a).__name__ for a in args]} -> {res}")
-                        if isinstance(res, tuple):
-                            err, ch = res[0], (res[1] if len(res) > 1 else None)
-                        else:
-                            err, ch = res, None
-                        if err == 0 and ch is not None:
-                            channel = ch
-                            break
-                    except TypeError as te:
-                        print(f"[mac] {m}{[type(a).__name__ for a in args]} TypeError: {te}")
-                        continue
-                    except Exception as e:
-                        print(f"[mac] {m}{[type(a).__name__ for a in args]} err: {e!r}")
-                        continue
-                if channel is not None:
-                    break
-            if channel is None:
+            self._channel = self._open_channel(dev, channel_id)
+            if self._channel is None:
                 print(f"[mac] не удалось открыть канал {channel_id}")
                 opened.set()
                 return
-            # Ждём подтверждение открытия от делегата (для Async-канала)
-            if not open_done.wait(5.0):
-                print("[mac] не дождался openComplete, пробую писать всё равно")
-            self._channel = channel
             print("[mac] RFCOMM канал открыт")
             opened.set()
 
+            # Keepalive: наушник закрывает SPP после ответа — держим канал открытым,
+            # чтобы соединение не отваливалось от системы.
             while not self._closed:
+                if self._channel is None:
+                    print("[mac] канал закрыт, переоткрываю")
+                    time.sleep(0.5)
+                    ch = self._open_channel(dev, channel_id)
+                    if ch is not None:
+                        self._channel = ch
+                        print("[mac] канал переоткрыт")
                 NSRunLoop.currentRunLoop().runUntilDate_(
                     NSDate.dateWithTimeIntervalSinceNow_(0.1)
                 )
@@ -380,8 +372,53 @@ class MacSppTransport(BaseSppTransport):
             print(f"[mac] исключение: {e!r}")
             opened.set()
 
+    def _open_channel(self, dev, channel_id):
+        """Открывает RFCOMM-канал, пробуя разные сигнатуры PyObjC. Возвращает канал или None."""
+        import Foundation
+        open_done = self._open_done
+        open_done.clear()
+        delegate = self._make_delegate()
+        rfc_methods = [m for m in dir(dev) if "RFCOMM" in m and "open" in m.lower()]
+        print(f"[mac] методы openRFCOMM: {rfc_methods}")
+        channel = None
+        for m in rfc_methods or [None]:
+            if m is None:
+                break
+            fn = getattr(dev, m, None)
+            if fn is None:
+                continue
+            # Пробуем разные сигнатуры: (cid, delegate), (None, cid, delegate), (cid, delegate, None)
+            for args in ((channel_id, delegate), (None, channel_id, delegate), (channel_id, delegate, None)):
+                try:
+                    res = fn(*args)
+                    print(f"[mac] {m}{[type(a).__name__ for a in args]} -> {res}")
+                    if isinstance(res, tuple):
+                        err, ch = res[0], (res[1] if len(res) > 1 else None)
+                    else:
+                        err, ch = res, None
+                    if err == 0 and ch is not None:
+                        channel = ch
+                        break
+                except TypeError as te:
+                    print(f"[mac] {m}{[type(a).__name__ for a in args]} TypeError: {te}")
+                    continue
+                except Exception as e:
+                    print(f"[mac] {m}{[type(a).__name__ for a in args]} err: {e!r}")
+                    continue
+            if channel is not None:
+                break
+        if channel is not None:
+            if not open_done.wait(5.0):
+                print("[mac] не дождался openComplete, пробую писать всё равно")
+        return channel
+
     async def send(self, gaia: bytes):
         buf = spp_frame(gaia)
+        # Keepalive-поток переоткрывает канал после того, как наушник закрыл SPP.
+        for _ in range(20):
+            if self._channel is not None:
+                break
+            await asyncio.sleep(0.1)
         ch = self._channel
         if ch is None:
             raise OSError("RFCOMM-канал не открыт")
