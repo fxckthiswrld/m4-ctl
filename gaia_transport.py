@@ -250,29 +250,36 @@ class MacSppTransport(BaseSppTransport):
         try:
             # IOBluetooth ожидает формат с дефисами: 80-C3-BA-9C-A5-4F
             dev_addr = self.bt_addr.replace(":", "-")
+            print(f"[mac] ищем устройство {dev_addr}")
             dev = IOBluetoothDevice.deviceWithAddressString_(dev_addr)
             if dev is None:
-                loop.call_soon_threadsafe(opened.set)
-                return
-            status = dev.openConnection()
-            if status != 0:
+                print("[mac] устройство не найдено по адресу")
                 loop.call_soon_threadsafe(opened.set)
                 return
             self._device = dev
+            print(f"[mac] найдено: {_mac_attr(dev, 'name')}")
+            status = dev.openConnection()
+            print(f"[mac] openConnection -> {status:#x}")
+            if status != 0:
+                loop.call_soon_threadsafe(opened.set)
+                return
 
             sdp_uuid = IOBluetoothSDPUUID.uuidWithUUIDString_(GAIA3_SPP_UUID)
             channel_id = None
             try:
                 svc = dev.getServiceRecordForUUID_(sdp_uuid)
+                print(f"[mac] getServiceRecordForUUID -> {svc}")
                 if svc is not None:
                     res = svc.getRFCOMMChannelID_(None)
+                    print(f"[mac] getRFCOMMChannelID -> {res}")
                     if isinstance(res, tuple):
                         err, cid = res
                     else:
                         err, cid = 0, res
                     if err == 0 and cid and cid > 0:
                         channel_id = cid
-            except Exception:
+            except Exception as e:
+                print(f"[mac] sdp err: {e!r}")
                 channel_id = None
 
             if channel_id is None:
@@ -285,30 +292,37 @@ class MacSppTransport(BaseSppTransport):
                             err, cid = 0, res
                         if err == 0 and cid and cid > 0:
                             channel_id = cid
+                            print(f"[mac] channel_id из services: {channel_id}")
                             break
                     except Exception:
                         continue
 
             if channel_id is None:
                 channel_id = 1
+                print("[mac] channel_id не найден, берём 1")
 
+            print(f"[mac] открываю RFCOMM канал {channel_id}")
             delegate = Delegate.alloc().init()
             self._delegate = delegate
             res = dev.openRFCOMMChannelSync_withChannelID_delegate_(channel_id, delegate)
+            print(f"[mac] openRFCOMMChannelSync -> {res}")
             if isinstance(res, tuple):
                 err, channel = res
             else:
                 err, channel = res, None
             if err != 0 or channel is None:
+                print(f"[mac] openRFCOMMChannelSync failed err={err:#x} channel={channel}")
                 loop.call_soon_threadsafe(opened.set)
                 return
             self._channel = channel
+            print("[mac] RFCOMM канал открыт")
 
             while not self._closed:
                 NSRunLoop.currentRunLoop().runUntilDate_(
                     NSDate.dateWithTimeIntervalSinceNow_(0.1)
                 )
         except Exception as e:
+            print(f"[mac] исключение: {e!r}")
             loop.call_soon_threadsafe(opened.set)
 
     async def send(self, gaia: bytes):
