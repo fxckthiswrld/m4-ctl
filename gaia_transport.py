@@ -254,14 +254,14 @@ class MacSppTransport(BaseSppTransport):
             dev = IOBluetoothDevice.deviceWithAddressString_(dev_addr)
             if dev is None:
                 print("[mac] устройство не найдено по адресу")
-                loop.call_soon_threadsafe(opened.set)
+                opened.set()
                 return
             self._device = dev
             print(f"[mac] найдено: {_mac_attr(dev, 'name')}")
             status = dev.openConnection()
             print(f"[mac] openConnection -> {status:#x}")
             if status != 0:
-                loop.call_soon_threadsafe(opened.set)
+                opened.set()
                 return
 
             sdp_uuid = _mac_sdp_uuid(GAIA3_SPP_UUID)
@@ -352,11 +352,11 @@ class MacSppTransport(BaseSppTransport):
                     break
             if channel is None:
                 print(f"[mac] не удалось открыть канал {channel_id}")
-                loop.call_soon_threadsafe(opened.set)
+                opened.set()
                 return
             self._channel = channel
             print("[mac] RFCOMM канал открыт")
-            loop.call_soon_threadsafe(opened.set)
+            opened.set()
 
             while not self._closed:
                 NSRunLoop.currentRunLoop().runUntilDate_(
@@ -364,7 +364,7 @@ class MacSppTransport(BaseSppTransport):
                 )
         except Exception as e:
             print(f"[mac] исключение: {e!r}")
-            loop.call_soon_threadsafe(opened.set)
+            opened.set()
 
     async def send(self, gaia: bytes):
         buf = spp_frame(gaia)
