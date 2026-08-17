@@ -1,7 +1,6 @@
 # Momentum 4 Control (M4)
 
-Управление Sennheiser Momentum 4 с компьютера (Windows / macOS) — без приложения
-Sennheiser Smart Control. Шумоподавление, режимы ANC, прозрачность и anti-wind
+Управление Sennheiser Momentum 4 из под Windows. Шумоподавление, режимы ANC, прозрачность и anti-wind
 по Bluetooth Classic (SPP).
 
 ## Возможности
@@ -22,13 +21,10 @@ Sennheiser Smart Control. Шумоподавление, режимы ANC, про
 ## Требования
 
 - Python 3.10+
-- Windows 10/11 или macOS
+- Windows 10/11
 - [uv](https://docs.astral.sh/uv/) — менеджер окружений и зависимостей
 
 ### Установка
-
-uv сам создаст виртуальное окружение и поставит зависимости под вашу ОС
-(winrt на Windows, IOBluetooth на macOS):
 
 ```
 uv sync
