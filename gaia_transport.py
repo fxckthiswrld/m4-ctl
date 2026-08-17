@@ -233,9 +233,13 @@ class MacSppTransport(BaseSppTransport):
         loop = self._loop
         opened = self._opened
 
+        open_done = threading.Event()
+
         class Delegate(Foundation.NSObject):
             def rfcommChannelOpenComplete_status_(self, channel, status):
-                opened.set()
+                if status != 0:
+                    print(f"[mac] openComplete status={status:#x}")
+                open_done.set()
 
             def rfcommChannelData_data_length_(self, channel, data, length):
                 try:
@@ -361,6 +365,9 @@ class MacSppTransport(BaseSppTransport):
                 print(f"[mac] не удалось открыть канал {channel_id}")
                 opened.set()
                 return
+            # Ждём подтверждение открытия от делегата (для Async-канала)
+            if not open_done.wait(5.0):
+                print("[mac] не дождался openComplete, пробую писать всё равно")
             self._channel = channel
             print("[mac] RFCOMM канал открыт")
             opened.set()
@@ -378,13 +385,27 @@ class MacSppTransport(BaseSppTransport):
         ch = self._channel
         if ch is None:
             raise OSError("RFCOMM-канал не открыт")
-        fn = getattr(ch, "writeSync_length_", None)
-        if fn is None:
-            raise OSError("нет метода writeSync на канале")
-        err = fn(bytes(buf), len(buf))
-        if err != 0:
-            raise OSError(f"writeSync error={err}")
-        print("TX:", hexd(buf))
+        import Foundation
+        methods = [(n, getattr(ch, n)) for n in dir(ch) if n in ("writeSync_length_", "writeAsync_length_", "writeData_")]
+        data = bytes(buf)
+        nsdata = Foundation.NSData.dataWithBytes_length_(data, len(data))
+        last = None
+        for name, fn in methods:
+            for payload, label in ((nsdata, "NSData"), (data, "bytes")):
+                try:
+                    res = fn(payload, len(data)) if not name.endswith("writeData_") else fn(payload)
+                    print(f"[mac] {name}({label}) -> {res}")
+                    if res == 0:
+                        print("TX:", hexd(buf))
+                        return
+                    last = f"{name}({label})={res:#x}"
+                except TypeError as te:
+                    print(f"[mac] {name}({label}) TypeError: {te}")
+                    last = te
+                except Exception as e:
+                    print(f"[mac] {name}({label}) err: {e!r}")
+                    last = e
+        raise OSError(f"write failed: {last}")
 
     async def recv(self, timeout: float = 3.0) -> bytes:
         try:
