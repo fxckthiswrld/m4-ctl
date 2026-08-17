@@ -1,28 +1,30 @@
 # Momentum 4 Control
 
-Неофициальное приложение для управления Sennheiser Momentum 4 по Classic
-Bluetooth SPP (RFCOMM) и протоколу GAIA3.
+[Russian version](README.ru.md)
 
-Поддерживаются Windows и macOS.
+Unofficial control app for Sennheiser Momentum 4 over Classic Bluetooth SPP
+(RFCOMM) and the GAIA3 protocol.
 
-## Возможности
+Windows and macOS are supported.
 
-- Поиск сопряжённых Bluetooth-устройств и подключение к Momentum 4.
-- ANC: Adaptive, Custom, Comfort и Off.
-- Anti-Wind: Off, Max и Auto.
-- Настройка прозрачности в Custom.
-- CLI на Python и desktop-приложение Electron.
+## Features
 
-## Требования для разработки
+- Discover paired Bluetooth devices and connect to Momentum 4.
+- ANC modes: Adaptive, Custom, Comfort, and Off.
+- Anti-Wind: Off, Max, and Auto.
+- Transparency adjustment in Custom mode.
+- Python CLI and Electron desktop app.
 
-- Python 3.10+ и [uv](https://docs.astral.sh/uv/).
-- Node.js 18+ и npm для Electron UI.
-- Сопряжённые с компьютером Momentum 4.
+## Development Requirements
 
-Готовые standalone-релизы уже содержат Python-мост. Пользователям Windows и
-macOS не нужны Python и `uv`.
+- Python 3.10+ and [uv](https://docs.astral.sh/uv/).
+- Node.js 18+ and npm for the Electron UI.
+- Momentum 4 paired with the computer.
 
-## Быстрый старт
+Standalone Windows and macOS releases embed the Python bridge, so end users do
+not need Python or `uv`.
+
+## Quick Start
 
 ```bash
 git clone https://github.com/fxckthiswrld/m4-ctl.git
@@ -30,19 +32,19 @@ cd m4-ctl
 uv sync
 ```
 
-Найдите адрес наушников:
+Find the headphone address:
 
 ```bash
 uv run python m4_ctl.py list
 ```
 
-Пример команды:
+Example command:
 
 ```bash
 uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF mode adaptive
 ```
 
-Доступные команды CLI:
+Available CLI commands:
 
 ```text
 list
@@ -54,8 +56,7 @@ transparency 0..100
 get
 ```
 
-`transparency 0` соответствует максимальному ANC в Custom, `100` - максимальной
-прозрачности.
+`transparency 0` is maximum ANC in Custom mode; `100` is maximum transparency.
 
 ## Desktop UI
 
@@ -65,13 +66,13 @@ npm ci
 npm run dev
 ```
 
-Electron запускает `bridge.py` автоматически. В окне приложения выберите
-наушники, подключитесь и настройте режимы.
+Electron starts `bridge.py` automatically. Choose the headphones, connect, and
+adjust the available modes in the app.
 
-## Standalone-сборки
+## Standalone Builds
 
-Сборка должна выполняться на целевой ОС: PyInstaller не собирает macOS-бинарник
-на Windows и наоборот.
+Build on the target operating system. PyInstaller cannot build macOS binaries on
+Windows or Windows binaries on macOS.
 
 ### Windows
 
@@ -81,11 +82,11 @@ npm ci
 npm run dist:win
 ```
 
-Артефакты: `ui/release/*.exe`.
+Artifacts: `ui/release/*.exe`.
 
 ### macOS
 
-На Mac установите `uv` и Node.js, затем:
+Install `uv` and Node.js on the Mac, then run:
 
 ```bash
 uv sync
@@ -94,21 +95,20 @@ npm ci
 npm run dist:mac
 ```
 
-Артефакты: `ui/release/*.dmg` и `ui/release/*.zip`.
+Artifacts: `ui/release/*.dmg` and `ui/release/*.zip`.
 
-Для Apple Silicon собирайте на Apple Silicon Mac, для Intel - на Intel Mac.
-macOS может показать предупреждение при запуске, пока приложение не подписано и
-не notarized Apple.
+Build on Apple Silicon for Apple Silicon, and on Intel for Intel. macOS may show
+a warning on first launch until the application is signed and notarized by Apple.
 
-## Релиз
+## Release
 
-1. Поднимите версию в `pyproject.toml`, `ui/package.json` и `ui/package-lock.json`.
-2. На Windows выполните `npm run dist:win`, на Mac - `npm run dist:mac`.
-3. Проверьте приложения на машинах без Python и `uv`.
-4. Закоммитьте исходники и lock-файлы, но не `ui/release` и `build`.
-5. Создайте тег и GitHub Release, затем прикрепите `.exe`, `.dmg` и `.zip`.
+1. Bump versions in `pyproject.toml`, `ui/package.json`, and `ui/package-lock.json`.
+2. Build on Windows with `npm run dist:win` and on macOS with `npm run dist:mac`.
+3. Test the applications on machines without Python or `uv`.
+4. Commit source and lock files, but not `ui/release` or `build`.
+5. Create a Git tag and GitHub Release, then attach the `.exe`, `.dmg`, and `.zip` files.
 
-Пример:
+Example:
 
 ```bash
 git status
@@ -120,19 +120,19 @@ git push origin v0.2.1
 gh release create v0.2.1 --title "v0.2.1" --generate-notes
 ```
 
-## Технически
+## Technical Notes
 
-Momentum 4 использует GAIA3 с vendor `0x0495` и RFCOMM-сервисом
+Momentum 4 uses GAIA3 with vendor `0x0495` and RFCOMM service
 `a2129ff3-081b-4c45-8afe-469d9c4842ec`.
 
-- `m4_ctl.py` - CLI.
-- `bridge.py` - JSON Lines-мост для Electron.
-- `gaia_transport.py` - SPP-транспорт: WinRT на Windows и IOBluetooth на macOS.
+- `m4_ctl.py`: CLI.
+- `bridge.py`: JSON Lines bridge for Electron.
+- `gaia_transport.py`: SPP transport using WinRT on Windows and IOBluetooth on macOS.
 
-## Предупреждение
+## Disclaimer
 
-Проект не связан с Sennheiser. Протокол восстановлен эмпирически и может
-отличаться между версиями прошивки. Используйте на свой страх и риск.
+This project is not affiliated with Sennheiser. The protocol was reconstructed
+empirically and may differ between firmware versions. Use at your own risk.
 
 ## License
 
