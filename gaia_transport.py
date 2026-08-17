@@ -356,6 +356,7 @@ class MacSppTransport(BaseSppTransport):
                 return
             self._channel = channel
             print("[mac] RFCOMM канал открыт")
+            loop.call_soon_threadsafe(opened.set)
 
             while not self._closed:
                 NSRunLoop.currentRunLoop().runUntilDate_(
