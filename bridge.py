@@ -90,6 +90,12 @@ class Bridge:
         if m == 0:
             await self._gaia(gaia_frame(0x1A04, bytes([0])))
         else:
+            # Из OFF-состояния (ANC выкл) 0x1A00 [m,1] не срабатывает —
+            # сначала прозрачность off, ANC on, потом режим (как в custom).
+            await self._gaia(gaia_frame(0x1804, bytes([0])))
+            await asyncio.sleep(0.4)
+            await self._gaia(gaia_frame(0x1A04, bytes([1])))
+            await asyncio.sleep(0.4)
             await self._gaia(gaia_frame(0x1A00, bytes([m, 1])))
         return {"mode": ANC_MODES[m]}
 
