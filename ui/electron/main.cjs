@@ -9,9 +9,26 @@ let bridgeOut = "";
 
 function startBridge() {
   if (bridge) return;
-  // Корень репозитория: ui/electron -> ../..  (там bridge.py, pyproject.toml, gaia_transport.py)
-  const root = path.join(__dirname, "..", "..");
-  bridge = spawn("uv", ["run", "python", "bridge.py"], { cwd: root, shell: true });
+
+  if (app.isPackaged) {
+    const executable = path.join(
+      process.resourcesPath,
+      "bridge",
+      "m4-bridge.exe"
+    );
+    bridge = spawn(executable, [], {
+      cwd: process.resourcesPath,
+      shell: false,
+      windowsHide: true,
+    });
+  } else {
+    // В dev-режиме мост запускается из корня репозитория через uv.
+    const root = path.join(__dirname, "..", "..");
+    bridge = spawn("uv", ["run", "python", "bridge.py"], {
+      cwd: root,
+      shell: true,
+    });
+  }
   bridgeOut = "";
 
   bridge.stdout.on("data", (d) => {

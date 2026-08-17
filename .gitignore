@@ -13,6 +13,7 @@ settings.gradle
 *.gradle
 
 # Electron UI
+build/
 ui/node_modules/
 ui/dist/
 ui/release/

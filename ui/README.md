@@ -1,43 +1,23 @@
-# Momentum 4 Control (UI)
+# Momentum 4 Control UI
 
-Electron + Vite + React + Tailwind (shadcn/ui) оболочка для управления
-Sennheiser Momentum 4 через Python-мост (`bridge.py`).
+Electron + Vite + React-интерфейс для управления Sennheiser Momentum 4 через
+Python-мост из корня репозитория.
 
-## Запуск (dev)
+Основная документация, список возможностей, архитектура и инструкция релиза:
+[../README.md](../README.md).
 
-```bash
-cd ui
-npm install
-npm run dev
-```
-
-Electron откроет окно; Vite dev server на `http://localhost:5173`.
-Мост (`uv run python bridge.py`) стартует автоматически из корня репозитория.
-
-## Сборка
+## Команды
 
 ```bash
-npm run build        # статический бандл в ui/dist
-npm run dist         # сборка + electron-builder (установщик)
+npm install       # установка зависимостей
+npm run dev       # Vite + Electron в режиме разработки
+npm run bridge:build # standalone m4-bridge.exe
+npm run build     # production frontend в dist
+npm run dist       # bridge + frontend + electron-builder
+npm start         # Electron с уже собранным dist
 ```
 
-## Как это работает
-
-```
-React (renderer) --IPC--> main.cjs --stdin/stdout JSON lines--> bridge.py --GAIA3 SPP--> M4
-```
-
-- `bridge.py` держит SPP-соединение открытым (keepalive) всё время работы аппы;
-  если наушник закрыл канал после ответа, мост пересоздаёт транспорт.
-- Протокол моста: JSON lines. Вход `{"cmd": "..."}`, выход `{"ok": true/false, ...}`.
-- Команды: `list`, `connect`, `anc`, `mode`, `custom`, `antiwind`, `transparency`, `get`, `close`.
-
-## Команды M4 (реализованные)
-
-| UI            | GAIA                             |
-| ------------- | -------------------------------- |
-| Adaptive      | `0x1A00 [3,1]`                   |
-| Custom        | `0x1804[0]` -> `0x1A04[1]` -> `0x1A00[3,0]` -> `0x1A02[0]` |
-| Off (ANC)     | `0x1A04 [0]`                     |
-| Anti-Wind     | `0x1A00 [1, level]` (0/1/2)      |
-| Transparency  | `0x1A00[3,0]` + `0x1A02[level]`  |
+Для запуска из `npm run dev` в корне репозитория должны быть установлены Python
+3.10+ и `uv`. Для `npm run dist` PyInstaller собирает Python-мост в
+`build/bridge/m4-bridge.exe`, после чего Electron упаковывает его в установщик.
+Готовый Windows-релиз не требует Python или `uv`.

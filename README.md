@@ -1,113 +1,290 @@
-# Momentum 4 Control (M4)
+# Momentum 4 Control
 
-Управление Sennheiser Momentum 4 из под Windows. Шумоподавление, режимы ANC, прозрачность и anti-wind
-по Bluetooth Classic (SPP).
+Неофициальный контроллер для наушников Sennheiser Momentum 4. Проект умеет
+управлять ANC, режимами Ambient Sound, прозрачностью и Anti-Wind через Classic
+Bluetooth SPP (RFCOMM) и протокол GAIA3.
+
+В проекте есть два интерфейса:
+
+- CLI на Python для отдельных команд и диагностики.
+- Desktop UI на Electron + React для постоянного управления устройством.
 
 ## Возможности
 
-| Команда | Что делает |
-|---|---|
-| `list` | Показать сопряжённые Bluetooth-устройства |
-| `anc on` / `anc off` | Включить / выключить шумоподавление |
-| `mode adaptive` | Режим «Адаптив» (ANC подстраивается автоматически) |
-| `mode anti_wind` | Режим «Anti-Wind» |
-| `mode comfort` | Режим «Comfort» |
-| `mode off` | Выключить ANC |
-| `custom` | Режим «Кастом» (полный ANC) |
-| `transparency 0..100` | Слайдер Кастома: 0 = ANC 100%, 100 = полная прозрачность, 50 = середина |
-| `antiwind 0/1/2` | Anti-Wind: `0` off, `1` MAX, `2` AUTO |
-| `get` | Прочитать текущее состояние наушников |
+| Возможность | CLI | UI |
+|---|---:|---:|
+| Список сопряжённых Bluetooth-устройств | Да | Да |
+| Подключение к Momentum 4 | На время команды | Да |
+| Отключение от Momentum 4 | После завершения команды | Да |
+| ANC on/off | Да | Да |
+| Adaptive | Да | Да |
+| Custom | Да | Да |
+| Comfort | Да | Нет отдельной кнопки |
+| Anti-Wind: Off/Max/Auto | Да | Да |
+| Прозрачность 0..100 | Да | Да, слайдер |
+| Чтение состояния | Да | Да, после подключения |
+| Keepalive и переподключение SPP | Для команд | Да |
 
 ## Требования
 
-- Python 3.10+
-- Windows 10/11
-- [uv](https://docs.astral.sh/uv/) — менеджер окружений и зависимостей
+- Windows 10/11 или macOS.
+- Python 3.10 или новее.
+- [uv](https://docs.astral.sh/uv/) в `PATH`.
+- Сопряжённые с компьютером Momentum 4 и включённый Bluetooth.
+- Node.js 18+ и npm для разработки и сборки UI.
 
-### Установка
-```
+Python и `uv` нужны для CLI, разработки и сборки. Готовый Windows standalone
+релиз содержит Python-мост внутри приложения и не требует Python или `uv` у
+конечного пользователя.
+
+На Linux транспорт пока не реализован.
+
+## Установка
+
+```bash
 git clone https://github.com/fxckthiswrld/m4-ctl.git
-```
-```
+cd m4-ctl
 uv sync
 ```
 
-Запуск команд — через `uv run`:
+Для UI установите npm-зависимости:
 
+```bash
+cd ui
+npm install
+cd ..
 ```
+
+## CLI
+
+Сначала выведите список сопряжённых устройств и найдите адрес Momentum 4:
+
+```bash
 uv run python m4_ctl.py list
 ```
 
-## Использование
+Пример:
 
-Сначала найдите адрес наушников:
-
-```
-uv run python m4_ctl.py list
-```
-
-Пример вывода:
-```
+```text
 AA:BB:CC:DD:EE:FF  MOMENTUM 4
 ```
 
-Дальше все команды принимают `--addr`:
+Все команды, кроме `list`, используют `--addr`:
 
 ```bash
-uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF list          # показать устройства
-uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF anc on        # шумоподавление вкл
-uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF anc off       # шумоподавление выкл
-uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF mode adaptive # режим «Адаптив»
-uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF custom        # режим «Кастом» (полный ANC)
-uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF transparency 100   # полная прозрачность
-uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF transparency 50    # середина
-uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF transparency 0     # полный ANC в кастоме
-uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF antiwind 1    # anti-wind MAX
-uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF antiwind 0    # anti-wind off
-uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF get           # состояние наушников
+uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF anc on
+uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF anc off
+uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF mode adaptive
+uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF mode comfort
+uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF mode anti_wind
+uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF mode off
+uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF custom
+uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF transparency 50
+uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF antiwind 2
+uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF get
 ```
 
-## Как это работает
+Значения:
 
-Momentum 4 управляется по **Classic Bluetooth SPP (RFCOMM)**, а не по BLE.
-Протокол — **GAIA3** (vendor `0x0495`), сервис `a2129ff3-081b-4c45-8afe-469d9c4842ec`.
+- `transparency 0` - максимальный ANC в Custom, `100` - максимальная прозрачность.
+- `antiwind 0` - Off, `1` - Max, `2` - Auto.
+- Для прозрачности мост сначала выходит из Adaptive, затем отправляет значение
+  слайдера.
 
-SPP-кадр GAIA3:
+## Desktop UI
 
+В режиме разработки из корня репозитория:
+
+```bash
+cd ui
+npm run dev
 ```
-FF 03 00 <len> | <vendor 2 байта BE> | <cmd 2 байта BE> | <payload len байт>
+
+Команда запускает Vite на `http://localhost:5173` и Electron. Electron
+автоматически запускает Python-мост из корня репозитория.
+
+Сборка frontend без установщика:
+
+```bash
+cd ui
+npm run build
 ```
 
-Полезные команды:
+Сборка Electron-пакета и установщика:
+
+```bash
+cd ui
+npm run dist
+```
+
+Артефакты создаются electron-builder в `ui/release`. Собирать установщик нужно
+на целевой ОС: Windows-сборка не
+заменяет macOS-сборку и наоборот.
+
+В режиме разработки Electron запускает `uv run python bridge.py`. В packaged
+режиме он запускает встроенный `m4-bridge.exe`.
+
+## Архитектура
+
+```text
+React renderer
+    | contextBridge + IPC
+Electron main process
+    | JSON Lines по stdin/stdout
+bridge.py
+    | GAIA3 over SPP/RFCOMM
+Momentum 4
+```
+
+`gaia_transport.py` выбирает транспорт по ОС:
+
+- Windows: WinRT `StreamSocket` и RFCOMM.
+- macOS: PyObjC `IOBluetooth` и RFCOMM.
+
+`bridge.py` держит транспорт открытым в течение работы UI, отвечает на JSON Lines
+команды и восстанавливает соединение, если наушники закрыли SPP-канал после
+ответа.
+
+Команды bridge-протокола: `list`, `connect`, `anc`, `mode`, `custom`, `antiwind`,
+`transparency`, `get`, `close`.
+
+Основные файлы:
+
+```text
+m4_ctl.py             CLI и команды GAIA3
+bridge.py             постоянный JSON Lines-мост для Electron
+gaia_transport.py     SPP/RFCOMM транспорт Windows и macOS
+pyproject.toml        Python-зависимости
+uv.lock               зафиксированные Python-зависимости
+ui/src/App.tsx        интерфейс управления
+ui/electron/main.cjs  Electron main process и запуск bridge.py
+ui/package.json       npm-команды и electron-builder
+```
+
+## Протокол
+
+Momentum 4 управляется не по BLE, а по Classic Bluetooth SPP. Используется GAIA3
+с vendor `0x0495` и сервисом
+`a2129ff3-081b-4c45-8afe-469d9c4842ec`.
+
+Полезные команды GAIA:
 
 | Команда | Назначение |
 |---|---|
-| `0x1A00 [mode, state]` | Режим ANC (mode: 1=anti-wind, 2=comfort, 3=adaptive) |
-| `0x1A02 [level]` | Слайдер Кастома (0..100) |
-| `0x1A04 [0/1]` | ANC вкл/выкл |
-| `0x1804 [0/1]` | Прозрачность (TransparentHearing) вкл/выкл |
-| `0x1A05` / `0x1A01` / `0x1A03` / `0x1805` | Чтение состояния |
+| `0x1A00 [mode, state]` | Режим ANC: `1` Anti-Wind, `2` Comfort, `3` Adaptive |
+| `0x1A02 [level]` | Слайдер Custom, `0..100` |
+| `0x1A04 [0/1]` | ANC off/on |
+| `0x1804 [0/1]` | TransparentHearing off/on |
+| `0x1A05`, `0x1A01`, `0x1A03`, `0x1805` | Чтение состояния |
 
-Протокол был восстановлен анализом JS-бандла официального приложения
-Sennheiser Smart Control.
+Протокол восстановлен анализом JS-бандла официального приложения Sennheiser
+Smart Control. Поведение может отличаться между версиями прошивки.
 
-## Структура проекта
+## Проверка перед публикацией
 
+```bash
+uv sync
+uv run python m4_ctl.py --help
+uv run python bridge.py
 ```
-m4_ctl.py            CLI: команды + GAIA3-фрейминг
-gaia_transport.py    Транспорт SPP: Windows (winrt) / macOS (IOBluetooth)
-pyproject.toml       Зависимости под ОС (uv)
+
+В отдельном окне UI:
+
+```bash
+cd ui
+npm ci
+npm run build
 ```
 
-## Важно
+Для проверки реального управления подключите наушники и выполните `list`,
+`connect` через UI или команды CLI. `bridge.py` завершайте через `Ctrl+C`.
 
-- Наушник закрывает SPP-соединение после каждого ответа — скрипт автоматически
-  переподключается между командами.
-- Слайдер Кастома (`0x1A02`) работает только вне режима «Адаптив» — скрипт сам
-  выходит из него перед отправкой.
-- Проект неофициальный, создан путём реверс-инжиниринга. Используйте на свой
-  страх и риск. Протокол восстановлен эмпирически, возможны отличия между
-  версиями прошивки.
+## Standalone-релиз Windows
+
+Полная сборка Windows автоматически выполняет два шага: PyInstaller собирает
+`bridge.py` в `build/bridge/m4-bridge.exe`, затем electron-builder добавляет этот
+файл в приложение.
+
+```powershell
+cd ui
+npm ci
+npm run dist
+```
+
+Результаты находятся в `ui/release`: NSIS-установщик и portable `.exe`. Для
+проверки portable-версии используйте компьютер без Python и `uv`.
+
+## Push и релиз
+
+Ниже предполагается, что remote `origin` уже указывает на GitHub-репозиторий.
+
+1. Проверьте изменения и состояние рабочей копии:
+
+   ```bash
+   git status
+   git diff --check
+   ```
+
+2. Обновите версии перед релизом. Версию приложения Electron меняйте в
+   `ui/package.json`; версию Python-пакета - в `pyproject.toml`, если она должна
+   совпадать. Например, замените `0.1.0` на `0.2.0`.
+
+3. Выполните проверки сборки:
+
+   ```bash
+   uv sync
+   cd ui
+   npm ci
+   npm run build
+   cd ..
+   ```
+
+4. Зафиксируйте только нужные файлы:
+
+   ```bash
+   git add README.md ui/README.md ui/package.json ui/electron/main.cjs pyproject.toml uv.lock .gitignore
+    git commit -m "build: add standalone Windows release"
+   ```
+
+   Если версии не менялись, уберите соответствующие файлы из `git add`. Не
+   добавляйте `ui/dist`, `ui/release`, `node_modules`, APK и временные тестовые
+   файлы без отдельного решения.
+
+5. Отправьте ветку и тег:
+
+   ```bash
+   git push origin master
+   git tag -a v0.2.0 -m "Release v0.2.0"
+   git push origin v0.2.0
+   ```
+
+6. Соберите Windows-установщик на этой Windows-машине:
+
+   ```powershell
+   cd ui
+   npm ci
+   npm run dist
+   ```
+
+   Проверьте полученный установщик на чистой машине без Python и `uv`.
+
+7. Создайте GitHub Release для тега `v0.2.0` на странице Releases и прикрепите
+   собранные файлы из `ui/release`. В описании укажите изменения, поддерживаемые
+   ОС и известные ограничения.
+
+При наличии GitHub CLI шаг 7 можно выполнить так:
+
+```bash
+gh release create v0.2.0 ui/release/* --title "v0.2.0" --generate-notes
+```
+
+## Ограничения и предупреждение
+
+- Проект неофициальный и не связан с Sennheiser.
+- Для Classic Bluetooth SPP требуется предварительное сопряжение наушников с
+  системой.
+- Реализация проверялась на ограниченном наборе устройств и версий прошивки.
+- Используйте проект на свой страх и риск.
 
 ## License
 
