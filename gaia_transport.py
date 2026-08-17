@@ -371,7 +371,10 @@ class MacSppTransport(BaseSppTransport):
         ch = self._channel
         if ch is None:
             raise OSError("RFCOMM-канал не открыт")
-        err = ch.writeSync_data_length_(bytes(buf), len(buf))
+        fn = getattr(ch, "writeSync_length_", None)
+        if fn is None:
+            raise OSError("нет метода writeSync на канале")
+        err = fn(bytes(buf), len(buf))
         if err != 0:
             raise OSError(f"writeSync error={err}")
         print("TX:", hexd(buf))
