@@ -25,7 +25,9 @@
 - [uv](https://docs.astral.sh/uv/) — менеджер окружений и зависимостей
 
 ### Установка
-
+```
+git clone https://github.com/fxckthiswrld/m4-ctl.git
+```
 ```
 uv sync
 ```
