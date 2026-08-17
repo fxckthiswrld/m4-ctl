@@ -33,9 +33,9 @@ Bluetooth SPP (RFCOMM) и протокол GAIA3.
 - Сопряжённые с компьютером Momentum 4 и включённый Bluetooth.
 - Node.js 18+ и npm для разработки и сборки UI.
 
-Python и `uv` нужны для CLI, разработки и сборки. Готовый Windows standalone
-релиз содержит Python-мост внутри приложения и не требует Python или `uv` у
-конечного пользователя.
+Python и `uv` нужны для CLI, разработки и сборки. Готовые Windows и macOS
+standalone-релизы содержат Python-мост внутри приложения и не требуют Python или
+`uv` у конечного пользователя.
 
 На Linux транспорт пока не реализован.
 
@@ -110,19 +110,31 @@ cd ui
 npm run build
 ```
 
-Сборка Electron-пакета и установщика:
+Сборка Electron-пакета и установщика по умолчанию для Windows:
+
+```powershell
+cd ui
+npm run dist:win
+```
+
+Сборка macOS выполняется на Mac:
 
 ```bash
 cd ui
-npm run dist
+npm run dist:mac
 ```
 
-Артефакты создаются electron-builder в `ui/release`. Собирать установщик нужно
-на целевой ОС: Windows-сборка не
-заменяет macOS-сборку и наоборот.
+Артефакты создаются electron-builder в `ui/release`:
+
+- Windows: NSIS-установщик и portable `.exe`.
+- macOS: `.dmg` и `.zip` для архитектуры текущего Mac.
+
+PyInstaller нельзя использовать как кросс-компилятор: Windows-сборку нужно
+делать на Windows, macOS-сборку - на macOS или macOS runner в CI.
 
 В режиме разработки Electron запускает `uv run python bridge.py`. В packaged
-режиме он запускает встроенный `m4-bridge.exe`.
+режиме он запускает встроенный `m4-bridge.exe` на Windows или `m4-bridge` на
+macOS.
 
 ## Архитектура
 
@@ -199,20 +211,43 @@ npm run build
 Для проверки реального управления подключите наушники и выполните `list`,
 `connect` через UI или команды CLI. `bridge.py` завершайте через `Ctrl+C`.
 
-## Standalone-релиз Windows
+## Standalone-релизы
 
-Полная сборка Windows автоматически выполняет два шага: PyInstaller собирает
-`bridge.py` в `build/bridge/m4-bridge.exe`, затем electron-builder добавляет этот
-файл в приложение.
+Полная сборка автоматически выполняет два шага: PyInstaller собирает Python-мост,
+затем electron-builder добавляет его в Electron-приложение.
+
+### Windows
 
 ```powershell
 cd ui
 npm ci
-npm run dist
+npm run dist:win
 ```
 
-Результаты находятся в `ui/release`: NSIS-установщик и portable `.exe`. Для
-проверки portable-версии используйте компьютер без Python и `uv`.
+Мост создается в `build/bridge/win/m4-bridge.exe`. Результаты находятся в
+`ui/release`. Для проверки portable-версии используйте компьютер без Python и
+`uv`.
+
+### macOS
+
+Запускайте эти команды на Mac, а не на Windows:
+
+```bash
+brew install uv node
+uv sync
+cd ui
+npm ci
+npm run dist:mac
+```
+
+Мост создается в `build/bridge/mac/m4-bridge`. Результаты находятся в
+`ui/release` и включают `.dmg` и `.zip`. Команда автоматически делает файл моста
+исполняемым.
+
+Для Apple Silicon собирайте на Apple Silicon Mac. Для Intel собирайте на Intel
+Mac или укажите нужную архитектуру PyInstaller отдельно. Подпись и notarization
+Apple в текущую конфигурацию не включены, поэтому macOS может показать
+предупреждение при первом запуске.
 
 ## Push и релиз
 
@@ -258,15 +293,18 @@ npm run dist
    git push origin v0.2.0
    ```
 
-6. Соберите Windows-установщик на этой Windows-машине:
+6. Соберите Windows-установщик на Windows-машине:
 
    ```powershell
    cd ui
    npm ci
-   npm run dist
+   npm run dist:win
    ```
 
    Проверьте полученный установщик на чистой машине без Python и `uv`.
+
+   macOS-артефакты соберите отдельно на Mac командой `npm run dist:mac` и
+   прикрепите полученные `.dmg` и `.zip` к тому же GitHub Release.
 
 7. Создайте GitHub Release для тега `v0.2.0` на странице Releases и прикрепите
    собранные файлы из `ui/release`. В описании укажите изменения, поддерживаемые

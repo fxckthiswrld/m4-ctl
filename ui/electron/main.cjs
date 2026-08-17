@@ -11,16 +11,18 @@ function startBridge() {
   if (bridge) return;
 
   if (app.isPackaged) {
+    const bridgeName = process.platform === "win32" ? "m4-bridge.exe" : "m4-bridge";
     const executable = path.join(
       process.resourcesPath,
       "bridge",
-      "m4-bridge.exe"
+      bridgeName
     );
-    bridge = spawn(executable, [], {
+    const options = {
       cwd: process.resourcesPath,
       shell: false,
-      windowsHide: true,
-    });
+    };
+    if (process.platform === "win32") options.windowsHide = true;
+    bridge = spawn(executable, [], options);
   } else {
     // В dev-режиме мост запускается из корня репозитория через uv.
     const root = path.join(__dirname, "..", "..");

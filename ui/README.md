@@ -11,13 +11,15 @@ Python-мост из корня репозитория.
 ```bash
 npm install       # установка зависимостей
 npm run dev       # Vite + Electron в режиме разработки
-npm run bridge:build # standalone m4-bridge.exe
-npm run build     # production frontend в dist
-npm run dist       # bridge + frontend + electron-builder
-npm start         # Electron с уже собранным dist
+npm run bridge:build:win # standalone Windows bridge
+npm run bridge:build:mac # standalone macOS bridge, only on macOS
+npm run build            # production frontend in dist
+npm run dist:win         # Windows installer + portable exe
+npm run dist:mac         # macOS dmg + zip
+npm start                # Electron with already built dist
 ```
 
-Для запуска из `npm run dev` в корне репозитория должны быть установлены Python
-3.10+ и `uv`. Для `npm run dist` PyInstaller собирает Python-мост в
-`build/bridge/m4-bridge.exe`, после чего Electron упаковывает его в установщик.
-Готовый Windows-релиз не требует Python или `uv`.
+Для `npm run dev` нужны Python 3.10+ и `uv`. Windows bridge собирается в
+`build/bridge/win/m4-bridge.exe`, macOS bridge - в
+`build/bridge/mac/m4-bridge`. Готовые Windows и macOS-релизы не требуют Python
+или `uv`; macOS-сборку нужно выполнять на Mac.

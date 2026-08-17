@@ -8,8 +8,12 @@
     "dev": "concurrently -k \"vite\" \"wait-on tcp:127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
     "build": "vite build",
     "start": "electron .",
-    "bridge:build": "cd .. && uv run pyinstaller --noconfirm --clean --onefile --name m4-bridge --collect-submodules winrt --distpath build\\bridge --workpath build\\pyinstaller --specpath build bridge.py",
-    "dist": "npm run bridge:build && vite build && electron-builder"
+    "bridge:build:win": "cd .. && uv run pyinstaller --noconfirm --clean --onefile --name m4-bridge --collect-submodules winrt --distpath build\\bridge\\win --workpath build\\pyinstaller\\win --specpath build bridge.py",
+    "bridge:build:mac": "cd .. && uv run pyinstaller --noconfirm --clean --onefile --name m4-bridge --distpath build/bridge/mac --workpath build/pyinstaller/mac --specpath build bridge.py && chmod +x build/bridge/mac/m4-bridge",
+    "bridge:build": "npm run bridge:build:win",
+    "dist:win": "npm run bridge:build:win && vite build && electron-builder --win",
+    "dist:mac": "npm run bridge:build:mac && vite build && electron-builder --mac",
+    "dist": "npm run dist:win"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.0",
@@ -42,12 +46,6 @@
       "dist/**/*",
       "electron/**/*"
     ],
-    "extraResources": [
-      {
-        "from": "../build/bridge/m4-bridge.exe",
-        "to": "bridge/m4-bridge.exe"
-      }
-    ],
     "directories": {
       "output": "release"
     },
@@ -55,6 +53,24 @@
       "target": [
         "nsis",
         "portable"
+      ],
+      "extraResources": [
+        {
+          "from": "../build/bridge/win/m4-bridge.exe",
+          "to": "bridge/m4-bridge.exe"
+        }
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "extraResources": [
+        {
+          "from": "../build/bridge/mac/m4-bridge",
+          "to": "bridge/m4-bridge"
+        }
       ]
     },
     "nsis": {
