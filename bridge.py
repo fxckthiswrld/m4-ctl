@@ -184,11 +184,15 @@ async def dispatch(bridge: Bridge, msg: dict):
 async def main():
     bridge = Bridge()
     q = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    sys.stdout.write(json.dumps({"event": "ready"}) + "\n")
+    sys.stdout.flush()
 
     def read_stdin():
         for line in sys.stdin:
-            q.put_nowait(line)
-        q.put_nowait(None)
+            # asyncio.Queue не потокобезопасна — ставим через call_soon_threadsafe
+            loop.call_soon_threadsafe(q.put_nowait, line)
+        loop.call_soon_threadsafe(q.put_nowait, None)
 
     threading.Thread(target=read_stdin, daemon=True).start()
 
