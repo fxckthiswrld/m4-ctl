@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""Momentum 4 — постоянный мост для Electron UI.
+
+Протокол: JSON lines по stdin/stdout.
+Вход:   {"cmd": "list"|"connect"|"anc"|"mode"|"custom"|"antiwind"|"transparency"|"get"|"close", ...args}
+Выход:  {"ok": true, "result": {...}}  или  {"ok": false, "error": "..."}
+
+Мост держит одно SPP-соединение открытым (keepalive) всё время работы аппы.
+Если наушник закрыл канал после ответа, следующая команда авто-пересоздаёт
+транспорт (на macOS keepalive-поток транспорта переоткрывает канал сам).
+"""
+
+import asyncio
+import json
+import sys
+import threading
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+from gaia_transport import create_transport, list_paired_devices
+
+VENDOR = 0x0495
+
+ANC_MODES = {0: "OFF", 1: "ANTI_WIND", 2: "COMFORT", 3: "ADAPTIVE"}
+MODE_NAMES = {v.lower(): k for k, v in ANC_MODES.items()}
+
+
+def gaia_frame(cmd: int, payload: bytes = b"") -> bytes:
+    """GAIA-заголовок + payload."""
+    return (
+        bytes([(VENDOR >> 8) & 0xFF, VENDOR & 0xFF])
+        + bytes([(cmd >> 8) & 0xFF, cmd & 0xFF])
+        + payload
+    )
+
+
+def parse_gaia_rsp(frame: bytes):
+    if len(frame) < 8 or frame[0] != 0xFF:
+        return None
+    return {
+        "vendor": (frame[4] << 8) | frame[5],
+        "cmd": (frame[6] << 8) | frame[7],
+        "payload": frame[8:],
+    }
+
+
+class Bridge:
+    def __init__(self):
+        self.tr = None
+        self.addr = None
+
+    async def _reconnect(self):
+        if self.tr is not None:
+            try:
+                await self.tr.close()
+            except Exception:
+                pass
+            self.tr = None
+        self.tr = create_transport(self.addr)
+        await self.tr.connect()
+
+    async def _gaia(self, frame: bytes, retry: bool = True):
+        """Отправляет GAIA-кадр. При обрыве канала пересоздаёт транспорт."""
+        try:
+            await self.tr.send(frame)
+        except Exception:
+            if retry:
+                await self._reconnect()
+                await self.tr.send(frame)
+            else:
+                raise
+
+    async def cmd_connect(self, addr: str):
+        self.addr = addr
+        await self._reconnect()
+        return {"connected": True, "addr": addr}
+
+    async def cmd_anc(self, state: str):
+        val = 1 if state == "on" else 0
+        await self._gaia(gaia_frame(0x1A04, bytes([val])))
+        return {"anc": "ON" if val else "OFF"}
+
+    async def cmd_mode(self, mode: str):
+        m = MODE_NAMES.get(mode.lower())
+        if m is None:
+            raise ValueError(f"неизвестный режим: {mode}")
+        if m == 0:
+            await self._gaia(gaia_frame(0x1A04, bytes([0])))
+        else:
+            await self._gaia(gaia_frame(0x1A00, bytes([m, 1])))
+        return {"mode": ANC_MODES[m]}
+
+    async def cmd_custom(self):
+        # Кастом-режим M4: прозрачность off -> ANC on -> выход из Adaptive -> слайдер ANC 100
+        steps = [
+            gaia_frame(0x1804, bytes([0])),
+            gaia_frame(0x1A04, bytes([1])),
+            gaia_frame(0x1A00, bytes([3, 0])),
+            gaia_frame(0x1A02, bytes([0])),
+        ]
+        for i, frame in enumerate(steps):
+            await self._gaia(frame)
+            if i < len(steps) - 1:
+                await asyncio.sleep(0.4)
+        return {"mode": "CUSTOM"}
+
+    async def cmd_antiwind(self, level: int):
+        level = max(0, min(2, int(level)))
+        await self._gaia(gaia_frame(0x1A00, bytes([1, level])))
+        return {"antiwind": level}
+
+    async def cmd_transparency(self, level: int):
+        level = max(0, min(100, int(level)))
+        # Слайдер Кастома работает только вне Адаптив-режима.
+        await self._gaia(gaia_frame(0x1A00, bytes([3, 0])))
+        await asyncio.sleep(0.4)
+        await self._gaia(gaia_frame(0x1A02, bytes([level])))
+        return {"transparency": level}
+
+    async def cmd_get(self):
+        if self.tr is None:
+            raise RuntimeError("не подключено")
+        state = {}
+        for name, cmd in [
+            ("anc", 0x1A05),
+            ("mode", 0x1A01),
+            ("transparency", 0x1A03),
+            ("transparent_hearing", 0x1805),
+        ]:
+            try:
+                await self.tr.send(gaia_frame(cmd))
+                f = await self.tr.recv_frame(timeout=2.0)
+            except Exception:
+                f = b""
+            if not f:
+                state[name] = None
+            else:
+                r = parse_gaia_rsp(f)
+                state[name] = r["payload"].hex(" ") if r else None
+        return {"state": state}
+
+    async def cmd_close(self):
+        if self.tr is not None:
+            try:
+                await self.tr.close()
+            except Exception:
+                pass
+            self.tr = None
+        return {"closed": True}
+
+
+HANDLERS = {
+    "list": lambda b: list_paired_devices(),
+    "connect": lambda b, **k: None,  # async, см. dispatch
+}
+
+
+async def dispatch(bridge: Bridge, msg: dict):
+    cmd = msg.get("cmd")
+    if cmd == "list":
+        return list_paired_devices()
+    if cmd == "connect":
+        return await bridge.cmd_connect(msg.get("addr", ""))
+    if cmd == "anc":
+        return await bridge.cmd_anc(msg.get("state", "off"))
+    if cmd == "mode":
+        return await bridge.cmd_mode(msg.get("mode", "adaptive"))
+    if cmd == "custom":
+        return await bridge.cmd_custom()
+    if cmd == "antiwind":
+        return await bridge.cmd_antiwind(msg.get("level", 0))
+    if cmd == "transparency":
+        return await bridge.cmd_transparency(msg.get("level", 0))
+    if cmd == "get":
+        return await bridge.cmd_get()
+    if cmd == "close":
+        return await bridge.cmd_close()
+    raise ValueError(f"неизвестная команда: {cmd}")
+
+
+async def main():
+    bridge = Bridge()
+    q = asyncio.Queue()
+
+    def read_stdin():
+        for line in sys.stdin:
+            q.put_nowait(line)
+        q.put_nowait(None)
+
+    threading.Thread(target=read_stdin, daemon=True).start()
+
+    while True:
+        line = await q.get()
+        if line is None:
+            break
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+            result = await dispatch(bridge, msg)
+            sys.stdout.write(json.dumps({"ok": True, "result": result}, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
+        except Exception as e:
+            sys.stdout.write(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
+
+    await bridge.cmd_close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

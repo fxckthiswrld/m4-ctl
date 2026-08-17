@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 10% 4%;
+    --foreground: 0 0% 98%;
+    --card: 240 6% 9%;
+    --card-foreground: 0 0% 98%;
+    --primary: 258 90% 68%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 4% 15%;
+    --secondary-foreground: 0 0% 90%;
+    --muted: 240 4% 14%;
+    --muted-foreground: 240 3% 54%;
+    --accent: 240 4% 15%;
+    --accent-foreground: 0 0% 98%;
+    --border: 0 0% 100% / 8%;
+    --input: 240 4% 16%;
+    --ring: 258 90% 68%;
+    --radius: 1rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family:
+      -apple-system,
+      BlinkMacSystemFont,
+      "SF Pro Text",
+      "Segoe UI",
+      Roboto,
+      sans-serif;
+  }
+}
+
+/* скроллбар под тёмную тему */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}

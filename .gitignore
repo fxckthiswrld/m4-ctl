@@ -7,6 +7,12 @@ venv/
 app/
 apk/
 so/
+app.7z
 build.gradle
 settings.gradle
 *.gradle
+
+# Electron UI
+ui/node_modules/
+ui/dist/
+ui/release/

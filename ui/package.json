@@ -1,0 +1,53 @@
+{
+  "name": "m4-control",
+  "productName": "Momentum 4 Control",
+  "version": "0.1.0",
+  "description": "Momentum 4 — GAIA3 SPP control (Electron + Python bridge)",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on tcp:127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "build": "vite build",
+    "start": "electron .",
+    "dist": "vite build && electron-builder"
+  },
+  "dependencies": {
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.454.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.5.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "@types/react": "^18.3.10",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.2",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.0.1",
+    "cross-env": "^10.1.0",
+    "electron": "^32.1.2",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.8",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.munwig.m4control",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "../gaia_transport.py",
+      "../bridge.py",
+      "../m4_ctl.py",
+      "../pyproject.toml",
+      "../uv.lock"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.cjs"
+    }
+  }
+}
