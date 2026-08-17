@@ -266,40 +266,57 @@ class MacSppTransport(BaseSppTransport):
 
             sdp_uuid = _mac_sdp_uuid(GAIA3_SPP_UUID)
             channel_id = None
-            try:
-                svc = dev.getServiceRecordForUUID_(sdp_uuid)
-                print(f"[mac] getServiceRecordForUUID -> {svc}")
-                if svc is not None:
-                    res = svc.getRFCOMMChannelID_(None)
-                    print(f"[mac] getRFCOMMChannelID -> {res}")
-                    if isinstance(res, tuple):
-                        err, cid = res
-                    else:
-                        err, cid = 0, res
-                    if err == 0 and cid and cid > 0:
-                        channel_id = cid
-            except Exception as e:
-                print(f"[mac] sdp err: {e!r}")
-                channel_id = None
-
-            if channel_id is None:
-                for svc in dev.services or []:
-                    try:
+            if sdp_uuid is not None:
+                try:
+                    svc = dev.getServiceRecordForUUID_(sdp_uuid)
+                    print(f"[mac] getServiceRecordForUUID -> {svc}")
+                    if svc is not None:
                         res = svc.getRFCOMMChannelID_(None)
+                        print(f"[mac] getRFCOMMChannelID -> {res}")
                         if isinstance(res, tuple):
                             err, cid = res
                         else:
                             err, cid = 0, res
                         if err == 0 and cid and cid > 0:
                             channel_id = cid
-                            print(f"[mac] channel_id из services: {channel_id}")
-                            break
-                    except Exception:
-                        continue
+                except Exception as e:
+                    print(f"[mac] sdp err: {e!r}")
+                    channel_id = None
 
             if channel_id is None:
+                services = _mac_call(dev, "services")
+                if services:
+                    print(f"[mac] services: {len(services)} записей")
+                    for svc in services:
+                        try:
+                            res = svc.getRFCOMMChannelID_(None)
+                            if isinstance(res, tuple):
+                                err, cid = res
+                            else:
+                                err, cid = 0, res
+                            if err == 0 and cid and cid > 0:
+                                channel_id = cid
+                                print(f"[mac] channel_id из services: {channel_id}")
+                                break
+                        except Exception:
+                            continue
+
+            if channel_id is None:
+                print("[mac] SDP не дал канал, перебираю RFCOMM 1..20")
+                for cid in range(1, 21):
+                    res = dev.openRFCOMMChannelSync_withChannelID_delegate_(cid, None)
+                    if isinstance(res, tuple):
+                        err, ch = res
+                    else:
+                        err, ch = res, None
+                    if err == 0 and ch is not None:
+                        print(f"[mac] подошёл канал {cid}")
+                        channel_id = cid
+                        ch.closeChannel()
+                        break
+            if channel_id is None:
                 channel_id = 1
-                print("[mac] channel_id не найден, берём 1")
+                print("[mac] канал не найден, беру 1")
 
             print(f"[mac] открываю RFCOMM канал {channel_id}")
             delegate = Delegate.alloc().init()
@@ -457,7 +474,21 @@ def _mac_sdp_uuid(uuid_str):
         fn = getattr(IOBluetoothSDPUUID, name, None)
         if fn is not None:
             return fn(uuid_str)
-    raise AttributeError(f"не найден метод создания SDP UUID в {dir(IOBluetoothSDPUUID)}")
+    return None
+
+
+def _mac_call(obj, attr):
+    """Получить значение атрибута/метода PyObjC, вызывая selector при необходимости."""
+    try:
+        val = getattr(obj, attr)
+    except Exception:
+        return None
+    if callable(val):
+        try:
+            return val()
+        except Exception:
+            return None
+    return val
 
 
 def _list_paired_macos():
