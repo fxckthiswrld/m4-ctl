@@ -1,6 +1,6 @@
 [project]
 name = "m4-ctl"
-version = "0.2.1"
+version = "0.2.2"
 description = "Управление Sennheiser Momentum 4 по Bluetooth SPP (GAIA3)"
 readme = "README.md"
 requires-python = ">=3.10"
