@@ -51,27 +51,55 @@ class Bridge:
     def __init__(self):
         self.tr = None
         self.addr = None
+        self._command_lock = asyncio.Lock()
 
     async def _reconnect(self):
+        if not self.addr:
+            raise RuntimeError("не выбран Bluetooth-адрес")
         if self.tr is not None:
             try:
                 await self.tr.close()
             except Exception:
                 pass
             self.tr = None
-        self.tr = create_transport(self.addr)
-        await self.tr.connect()
+        last_error = None
+        for attempt in range(3):
+            tr = create_transport(self.addr)
+            try:
+                await tr.connect()
+                self.tr = tr
+                return
+            except Exception as e:
+                last_error = e
+                try:
+                    await tr.close()
+                except Exception:
+                    pass
+                if attempt < 2:
+                    await asyncio.sleep(0.75 * (attempt + 1))
+        raise RuntimeError(f"не удалось подключиться к {self.addr}: {last_error}")
 
     async def _gaia(self, frame: bytes, retry: bool = True):
-        """Отправляет GAIA-кадр. При обрыве канала пересоздаёт транспорт."""
+        """Отправляет команду, забирает ответ и восстанавливает SPP-канал."""
+        if self.tr is None or not self.tr.is_alive():
+            await self._reconnect()
         try:
             await self.tr.send(frame)
         except Exception:
-            if retry:
-                await self._reconnect()
-                await self.tr.send(frame)
-            else:
+            if not retry:
                 raise
+            await self._reconnect()
+            await self.tr.send(frame)
+
+        try:
+            response = await self.tr.recv_frame(timeout=1.2)
+        except Exception as e:
+            print(f"[bridge] ответ GAIA не прочитан: {e!r}", file=sys.stderr)
+            response = b""
+
+        if not self.tr.is_alive():
+            await self._reconnect()
+        return response
 
     async def cmd_connect(self, addr: str):
         self.addr = addr
@@ -137,8 +165,7 @@ class Bridge:
             ("transparent_hearing", 0x1805),
         ]:
             try:
-                await self.tr.send(gaia_frame(cmd))
-                f = await self.tr.recv_frame(timeout=2.0)
+                f = await self._gaia(gaia_frame(cmd))
             except Exception:
                 f = b""
             if not f:
@@ -211,7 +238,8 @@ async def main():
             continue
         try:
             msg = json.loads(line)
-            result = await dispatch(bridge, msg)
+            async with bridge._command_lock:
+                result = await dispatch(bridge, msg)
             sys.stdout.write(json.dumps({"ok": True, "result": result}, ensure_ascii=False) + "\n")
             sys.stdout.flush()
         except Exception as e:

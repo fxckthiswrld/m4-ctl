@@ -47,6 +47,29 @@ class BaseSppTransport:
     async def close(self):
         raise NotImplementedError
 
+    def is_alive(self) -> bool:
+        return False
+
+
+def take_spp_frame(buffer: bytearray):
+    """Извлекает один SPP-кадр, сохраняя хвост для следующего ответа."""
+    while True:
+        if len(buffer) < 4:
+            return None
+        if buffer[0] != 0xFF or buffer[1] != 3:
+            marker = buffer.find(b"\xff\x03")
+            if marker < 0:
+                buffer.clear()
+            else:
+                del buffer[:marker]
+            return b""
+        total = 8 + buffer[3]
+        if len(buffer) < total:
+            return None
+        frame = bytes(buffer[:total])
+        del buffer[:total]
+        return frame
+
 
 # ---------- Windows: winrt StreamSocket ----------
 
@@ -70,23 +93,26 @@ class WinSppTransport(BaseSppTransport):
         super().__init__(bt_addr)
         self.sock = None
         self.reader = None
+        self.writer = None
         self._rx_queue = asyncio.Queue()
         self._rx_task = None
+        self._rx_buffer = bytearray()
+        self._closed = False
 
     async def connect(self):
         if not HAS_WINRT:
-            sys.exit("На Windows нужны пакеты winrt: pip install winrt-Windows.Devices.Bluetooth winrt-Windows.Devices.Bluetooth.Rfcomm winrt-Windows.Networking winrt-Windows.Networking.Sockets winrt-Windows.Storage.Streams")
+            raise RuntimeError("На Windows нужны пакеты winrt: pip install winrt-Windows.Devices.Bluetooth winrt-Windows.Devices.Bluetooth.Rfcomm winrt-Windows.Networking winrt-Windows.Networking.Sockets winrt-Windows.Storage.Streams")
 
         addr_int = int(self.bt_addr.replace(":", ""), 16)
         dev = BluetoothDevice.from_bluetooth_address_async(addr_int).get()
         if not dev or not dev.name:
-            sys.exit(f"Устройство {self.bt_addr} не найдено (проверь сопряжение).")
+            raise RuntimeError(f"Устройство {self.bt_addr} не найдено (проверь сопряжение).")
 
         sid = RfcommServiceId.from_uuid(uuid.UUID(GAIA3_SPP_UUID))
         res = dev.get_rfcomm_services_for_id_async(sid).get()
         services = list(res.services)
         if not services:
-            sys.exit("RFCOMM-сервис GAIA3 не найден на устройстве.")
+            raise RuntimeError("RFCOMM-сервис GAIA3 не найден на устройстве.")
         print(f"RFCOMM-сервисов GAIA3: {len(services)}")
 
         svc = services[0]
@@ -97,31 +123,60 @@ class WinSppTransport(BaseSppTransport):
         print("SPP-соединение установлено.")
 
         self.reader = DataReader(self.sock.input_stream)
+        self.writer = DataWriter(self.sock.output_stream)
         self.reader.input_stream_options = InputStreamOptions.PARTIAL
+        self._closed = False
+        self._rx_buffer.clear()
         self._rx_task = asyncio.create_task(self._rx_loop())
 
     async def _rx_loop(self):
-        while True:
-            done = asyncio.Event()
+        try:
+            while not self._closed:
+                done = asyncio.Event()
 
-            async def waiter():
+                async def waiter():
+                    try:
+                        await self.reader.load_async(1)
+                    finally:
+                        done.set()
+
+                fut = asyncio.ensure_future(waiter())
                 try:
-                    await self.reader.load_async(1)
-                    done.set()
-                except Exception:
-                    done.set()
+                    await asyncio.wait_for(done.wait(), None)
+                    if fut.exception() is not None:
+                        raise fut.exception()
+                except asyncio.CancelledError:
+                    fut.cancel()
+                    raise
+                except Exception as e:
+                    print(f"[win] SPP receive stopped: {e!r}")
+                    fut.cancel()
+                    break
+                n = self.reader.unconsumed_buffer_length
+                if n == 0:
+                    await asyncio.sleep(0.05)
+                    continue
+                data = bytes(self.reader.read_buffer(n))
+                await self._rx_queue.put(data)
+        finally:
+            if not self._closed:
+                print("[win] SPP-канал закрыт")
+            self._closed = True
 
-            fut = asyncio.ensure_future(waiter())
+    async def _next_frame(self, timeout: float):
+        deadline = time.monotonic() + timeout
+        while True:
+            frame = take_spp_frame(self._rx_buffer)
+            if frame is not None:
+                return frame
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return b""
             try:
-                await asyncio.wait_for(done.wait(), None)
+                chunk = await asyncio.wait_for(self._rx_queue.get(), remaining)
             except Exception:
-                break
-            n = self.reader.unconsumed_buffer_length
-            if n == 0:
-                await asyncio.sleep(0.05)
-                continue
-            data = bytes(self.reader.read_buffer(n))
-            await self._rx_queue.put(data)
+                return b""
+            self._rx_buffer.extend(chunk)
 
     async def recv(self, timeout: float = 3.0) -> bytes:
         try:
@@ -132,43 +187,24 @@ class WinSppTransport(BaseSppTransport):
         return data
 
     async def recv_frame(self, timeout: float = 3.0) -> bytes:
-        got = bytearray()
-        deadline = time.monotonic() + timeout
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            try:
-                chunk = await asyncio.wait_for(self._rx_queue.get(), remaining)
-            except asyncio.TimeoutError:
-                break
-            got.extend(chunk)
-            if len(got) < 4:
-                continue
-            if got[0] != 0xFF or got[1] != 3:
-                print("RX (raw):", hexd(bytes(got)))
-                return b""
-            total = 8 + got[3]
-            if len(got) >= total:
-                break
-        if not got:
-            return b""
-        if got[0] != 0xFF or got[1] != 3 or len(got) < 4:
-            print("RX (raw):", hexd(bytes(got)))
-            return b""
-        total = 8 + got[3]
-        frame = bytes(got[:total])
-        print("RX:", hexd(frame))
+        frame = await self._next_frame(timeout)
+        if frame:
+            print("RX:", hexd(frame))
         return frame
 
     async def send(self, gaia: bytes):
+        if self._closed or self.sock is None or self.writer is None:
+            raise OSError("SPP-канал не открыт")
         buf = spp_frame(gaia)
-        writer = DataWriter(self.sock.output_stream)
-        writer.write_bytes(buf)
-        writer.store_async().get()
+        self.writer.write_bytes(buf)
+        self.writer.store_async().get()
         print("TX:", hexd(buf))
 
+    def is_alive(self) -> bool:
+        return not self._closed and self.sock is not None and self._rx_task is not None and not self._rx_task.done()
+
     async def close(self):
+        self._closed = True
         try:
             if self._rx_task:
                 self._rx_task.cancel()
@@ -177,6 +213,11 @@ class WinSppTransport(BaseSppTransport):
         try:
             if self.reader:
                 self.reader.close()
+        except Exception:
+            pass
+        try:
+            if self.writer:
+                self.writer.close()
         except Exception:
             pass
         try:
@@ -215,16 +256,22 @@ class MacSppTransport(BaseSppTransport):
         self._opened = threading.Event()
         self._channel_id = None
         self._open_done = None
+        self._open_status = 0
+        self._rx_buffer = bytearray()
 
     async def connect(self):
         if not HAS_IOBT:
-            sys.exit("На macOS нужен PyObjC IOBluetooth: pip install pyobjc-framework-IOBluetooth")
+            raise RuntimeError("На macOS нужен PyObjC IOBluetooth: pip install pyobjc-framework-IOBluetooth")
         self._loop = asyncio.get_running_loop()
         self._q = asyncio.Queue()
+        self._closed = False
+        self._rx_buffer.clear()
         self._thread = threading.Thread(target=self._thread_main, daemon=True)
         self._thread.start()
-        if not self._opened.wait(15.0):
-            sys.exit("Не удалось открыть RFCOMM-канал GAIA3 на macOS.")
+        if not await asyncio.to_thread(self._opened.wait, 15.0):
+            raise RuntimeError("Не удалось открыть RFCOMM-канал GAIA3 на macOS.")
+        if self._channel is None:
+            raise RuntimeError("Не удалось открыть RFCOMM-канал GAIA3 на macOS.")
         print("SPP-соединение установлено.")
 
     def _make_delegate(self):
@@ -236,6 +283,7 @@ class MacSppTransport(BaseSppTransport):
 
         class Delegate(Foundation.NSObject):
             def rfcommChannelOpenComplete_status_(self, channel, status):
+                transport._open_status = status
                 if status != 0:
                     print(f"[mac] openComplete status={status:#x}")
                 if transport._open_done is not None:
@@ -377,6 +425,7 @@ class MacSppTransport(BaseSppTransport):
         import Foundation
         open_done = self._open_done
         open_done.clear()
+        self._open_status = 0
         delegate = self._make_delegate()
         rfc_methods = [m for m in dir(dev) if "RFCOMM" in m and "open" in m.lower()]
         print(f"[mac] методы openRFCOMM: {rfc_methods}")
@@ -410,6 +459,12 @@ class MacSppTransport(BaseSppTransport):
         if channel is not None:
             if not open_done.wait(5.0):
                 print("[mac] не дождался openComplete, пробую писать всё равно")
+            elif self._open_status != 0:
+                try:
+                    channel.closeChannel()
+                except Exception:
+                    pass
+                return None
         return channel
 
     async def send(self, gaia: bytes):
@@ -444,6 +499,9 @@ class MacSppTransport(BaseSppTransport):
                     last = e
         raise OSError(f"write failed: {last}")
 
+    def is_alive(self) -> bool:
+        return not self._closed and self._channel is not None
+
     async def recv(self, timeout: float = 3.0) -> bytes:
         try:
             data = await asyncio.wait_for(self._q.get(), timeout)
@@ -453,36 +511,24 @@ class MacSppTransport(BaseSppTransport):
         return data
 
     async def recv_frame(self, timeout: float = 3.0) -> bytes:
-        got = bytearray()
         deadline = time.monotonic() + timeout
         while True:
+            frame = take_spp_frame(self._rx_buffer)
+            if frame is not None:
+                if frame:
+                    print("RX:", hexd(frame))
+                return frame
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                break
+                return b""
             try:
                 chunk = await asyncio.wait_for(self._q.get(), remaining)
             except asyncio.TimeoutError:
-                break
-            if not chunk:
-                break
-            got.extend(chunk)
-            if len(got) < 4:
-                continue
-            if got[0] != 0xFF or got[1] != 3:
-                print("RX (raw):", hexd(bytes(got)))
                 return b""
-            total = 8 + got[3]
-            if len(got) >= total:
-                break
-        if not got:
-            return b""
-        if got[0] != 0xFF or got[1] != 3 or len(got) < 4:
-            print("RX (raw):", hexd(bytes(got)))
-            return b""
-        total = 8 + got[3]
-        frame = bytes(got[:total])
-        print("RX:", hexd(frame))
-        return frame
+            if not chunk:
+                self._channel = None
+                return b""
+            self._rx_buffer.extend(chunk)
 
     async def close(self):
         self._closed = True
@@ -524,19 +570,20 @@ def _list_paired_windows():
     from winrt.windows.devices.enumeration import DeviceInformation, DeviceClass
     import re
 
-    result = DeviceInformation.find_all_async_device_class(DeviceClass.ALL).get()
+    try:
+        selector = BluetoothDevice.get_device_selector()
+        result = DeviceInformation.find_all_async_aqs_filter(selector).get()
+    except Exception:
+        result = DeviceInformation.find_all_async_device_class(DeviceClass.ALL).get()
     seen = {}
     for d in result:
         name = d.name or ""
-        m = re.search(r"BluetoothDevice_([0-9A-Fa-f]{12})", d.id or "")
-        if m:
-            a = m.group(1).upper()
-            addr = ":".join(a[i:i + 2] for i in range(0, 12, 2))
-            seen.setdefault(addr, name)
-            continue
-        m = re.search(r"&([0-9A-Fa-f]{12})", d.id or "")
-        if m and name:
-            a = m.group(1).upper()
+        device_id = d.id or ""
+        matches = re.findall(r"(?i)([0-9a-f]{2}(?:[:-][0-9a-f]{2}){5})", device_id)
+        if not matches:
+            matches = re.findall(r"(?i)([0-9a-f]{12})", device_id)
+        if matches and name:
+            a = re.sub(r"[:-]", "", matches[-1]).upper()
             addr = ":".join(a[i:i + 2] for i in range(0, 12, 2))
             seen.setdefault(addr, name)
     return [{"name": name, "address": addr} for addr, name in seen.items()]
