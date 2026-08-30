@@ -72,7 +72,8 @@
           "from": "../build/bridge/mac/m4-bridge",
           "to": "bridge/m4-bridge"
         }
-      ]
+      ],
+      "x64ArchFiles": "Contents/Resources/bridge/m4-bridge"
     },
     "nsis": {
       "oneClick": false,
