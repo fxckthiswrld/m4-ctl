@@ -12,6 +12,7 @@
 
 import asyncio
 import json
+import re
 import sys
 import threading
 
@@ -26,6 +27,17 @@ VENDOR = 0x0495
 
 ANC_MODES = {0: "OFF", 1: "ANTI_WIND", 2: "COMFORT", 3: "ADAPTIVE"}
 MODE_NAMES = {v.lower(): k for k, v in ANC_MODES.items()}
+BT_ADDRESS_RE = re.compile(r"^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$", re.IGNORECASE)
+
+
+def normalize_bt_address(addr: str) -> str:
+    """Validate and normalize a Bluetooth MAC address for transport APIs."""
+    if not isinstance(addr, str):
+        raise ValueError("Bluetooth-адрес должен быть строкой")
+    normalized = addr.strip().replace("-", ":").upper()
+    if not BT_ADDRESS_RE.fullmatch(normalized):
+        raise ValueError("некорректный Bluetooth-адрес (ожидается AA:BB:CC:DD:EE:FF)")
+    return normalized
 
 
 def gaia_frame(cmd: int, payload: bytes = b"") -> bytes:
@@ -102,9 +114,9 @@ class Bridge:
         return response
 
     async def cmd_connect(self, addr: str):
-        self.addr = addr
+        self.addr = normalize_bt_address(addr)
         await self._reconnect()
-        return {"connected": True, "addr": addr}
+        return {"connected": True, "addr": self.addr}
 
     async def cmd_anc(self, state: str):
         val = 1 if state == "on" else 0
