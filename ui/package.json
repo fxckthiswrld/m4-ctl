@@ -1,7 +1,7 @@
 {
   "name": "m4-control",
   "productName": "Momentum 4 Control",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Momentum 4 — GAIA3 SPP control (Electron + Python bridge)",
   "main": "electron/main.cjs",
   "scripts": {
