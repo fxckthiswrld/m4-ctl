@@ -61,7 +61,7 @@ npm run dist:win
 
 GitHub Actions запускает тесты моста и проверки UI для каждого push и pull
 request. При отправке тега вида `v*` дополнительно собираются native-артефакты
-для Windows и macOS и публикуются в GitHub Release.
+для Windows и macOS (`arm64`, `x64` и universal) и публикуются в GitHub Release.
 
 ### macOS
 

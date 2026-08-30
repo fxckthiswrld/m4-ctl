@@ -63,7 +63,8 @@ Artifacts: `ui/release/*.exe`.
 
 GitHub Actions runs the bridge tests and UI checks for every push and pull
 request. Pushing a tag matching `v*` additionally builds native Windows and
-macOS artifacts and publishes them to a GitHub Release.
+macOS artifacts (`arm64`, `x64`, and universal) and publishes them to a GitHub
+Release.
 
 ### macOS
 

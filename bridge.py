@@ -59,6 +59,32 @@ def parse_gaia_rsp(frame: bytes):
     }
 
 
+def _response_value(payload: bytes):
+    """Return the value byte used by GAIA getters, ignoring status prefixes."""
+    return payload[-1] if payload else None
+
+
+def parse_state_value(name: str, response):
+    """Decode a getter response while retaining its raw payload for diagnostics."""
+    payload = response["payload"]
+    value = _response_value(payload)
+    state = {"raw": payload.hex(" "), "cmd": response["cmd"]}
+    if value is None:
+        state["value"] = None
+        return state
+    if name == "anc" or name == "transparent_hearing":
+        state["enabled"] = bool(value)
+    elif name == "mode":
+        state["code"] = value
+        state["name"] = ANC_MODES.get(value)
+        state["key"] = ANC_MODES.get(value, "").lower() or None
+    elif name == "transparency":
+        state["level"] = value if value <= 100 else None
+    else:
+        state["value"] = value
+    return state
+
+
 class Bridge:
     def __init__(self):
         self.tr = None
@@ -184,7 +210,7 @@ class Bridge:
                 state[name] = None
             else:
                 r = parse_gaia_rsp(f)
-                state[name] = r["payload"].hex(" ") if r else None
+                state[name] = parse_state_value(name, r) if r else None
         return {"state": state}
 
     async def cmd_close(self):

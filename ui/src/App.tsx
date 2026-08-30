@@ -18,7 +18,7 @@ import { Slider } from "@/components/ui/slider";
 import { Select } from "@/components/ui/select";
 import { Toggle } from "@/components/ui/toggle";
 import { cn } from "@/lib/utils";
-import type { BridgeReply, Device } from "@/lib/bridge";
+import type { BridgeReply, Device, DeviceState } from "@/lib/bridge";
 
 type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
 type AmbientMode = "adaptive" | "custom" | "off";
@@ -69,6 +69,9 @@ const translations = {
     command: (value: string) => `[ui] ${value}`,
     commandOk: (value: string) => `[ui] ${value} ok`,
     commandError: (value: string, error: string) => `[ui] ${value}: ${error}`,
+    currentState: "Current state",
+    reconnect: "Reconnect",
+    busy: "Applying...",
   },
   ru: {
     language: "Язык",
@@ -110,6 +113,9 @@ const translations = {
     command: (value: string) => `[ui] ${value}`,
     commandOk: (value: string) => `[ui] ${value} ок`,
     commandError: (value: string, error: string) => `[ui] ${value}: ${error}`,
+    currentState: "Текущее состояние",
+    reconnect: "Переподключить",
+    busy: "Применение...",
   },
 } as const;
 
@@ -188,19 +194,52 @@ export default function App() {
   const [status, setStatus] = React.useState<ConnectionStatus>("idle");
   const [statusText, setStatusText] = React.useState("");
   const [devices, setDevices] = React.useState<Device[]>([]);
-  const [selectedAddr, setSelectedAddr] = React.useState("");
+  const [selectedAddr, setSelectedAddr] = React.useState(() =>
+    window.localStorage.getItem("m4-device-address") || ""
+  );
   const [mode, setMode] = React.useState<AmbientMode>("adaptive");
   const [antiwind, setAntiwind] = React.useState("0");
   const [transparency, setTransparency] = React.useState(0);
+  const [deviceState, setDeviceState] = React.useState<DeviceState | null>(null);
+  const [busy, setBusy] = React.useState(false);
   const [log, setLog] = React.useState<string[]>([]);
   const pendingRef = React.useRef(new Map<string, PendingRequest>());
   const requestSeqRef = React.useRef(0);
+  const busyCountRef = React.useRef(0);
   const logRef = React.useRef<string[]>([]);
 
   React.useEffect(() => {
     window.localStorage.setItem("m4-language", language);
     document.documentElement.lang = language;
   }, [language]);
+
+  React.useEffect(() => {
+    if (selectedAddr) window.localStorage.setItem("m4-device-address", selectedAddr);
+    else window.localStorage.removeItem("m4-device-address");
+  }, [selectedAddr]);
+
+  function clearDeviceState() {
+    setDeviceState(null);
+    setMode("off");
+    setAntiwind("0");
+    setTransparency(0);
+  }
+
+  function applyDeviceState(state: DeviceState | null | undefined) {
+    if (!state) return;
+    setDeviceState(state);
+    const modeKey = state.mode?.key;
+    if (state.anc?.enabled === false || modeKey === "off") setMode("off");
+    else if (modeKey === "adaptive") setMode("adaptive");
+    else if (modeKey === "anti_wind") {
+      setMode("custom");
+      setAntiwind("0");
+    } else if (modeKey === "comfort") {
+      // Keep the unsupported comfort mode visible in the reported state.
+    }
+    const level = state.transparency?.level;
+    if (typeof level === "number" && level >= 0 && level <= 100) setTransparency(level);
+  }
 
   function pushLog(line: string) {
     logRef.current = [...logRef.current.slice(-200), line];
@@ -222,7 +261,14 @@ export default function App() {
       pending.resolve(msg);
     });
     const offLog = w.m4.onLog((text: string) => {
-      pushLog(text.replace(/\n$/, ""));
+      const line = text.replace(/\n$/, "");
+      pushLog(line);
+      if (line.includes("[bridge] процесс завершён") || line.includes("[bridge] ошибка запуска")) {
+        setBridgeReady(false);
+        setStatus("idle");
+        setStatusText("");
+        clearDeviceState();
+      }
     });
     refreshDevices();
     return () => {
@@ -240,18 +286,28 @@ export default function App() {
     if (!w.m4) return Promise.resolve({ ok: false, error: "bridge unavailable" });
     const id = `ui-${++requestSeqRef.current}`;
     const payload = { ...msg, id };
+    busyCountRef.current += 1;
+    setBusy(true);
     return new Promise((resolve) => {
+      let settled = false;
+      const finish = (reply: BridgeReply) => {
+        if (settled) return;
+        settled = true;
+        busyCountRef.current = Math.max(0, busyCountRef.current - 1);
+        setBusy(busyCountRef.current > 0);
+        resolve(reply);
+      };
       const timer = window.setTimeout(() => {
         if (!pendingRef.current.delete(id)) return;
-        resolve({ ok: false, error: "timeout", id });
+        finish({ ok: false, error: "timeout", id });
       }, 20000);
-      pendingRef.current.set(id, { resolve, timer });
+      pendingRef.current.set(id, { resolve: finish, timer });
       Promise.resolve(w.m4.cmd(payload)).catch((error: unknown) => {
         const pending = pendingRef.current.get(id);
         if (!pending) return;
         window.clearTimeout(pending.timer);
         pendingRef.current.delete(id);
-        resolve({ ok: false, error: error instanceof Error ? error.message : String(error), id });
+        finish({ ok: false, error: error instanceof Error ? error.message : String(error), id });
       });
     });
   }
@@ -276,10 +332,11 @@ export default function App() {
     if (r.ok) {
       setStatus("connected");
       pushLog(t.connectedLog);
-      readState();
+      void readState();
     } else {
       setStatus("error");
       setStatusText(r.error || "unknown");
+      clearDeviceState();
       pushLog(t.connectionError(r.error || "unknown"));
     }
   }
@@ -287,6 +344,7 @@ export default function App() {
   async function disconnect() {
     setStatus("idle");
     setStatusText("");
+    clearDeviceState();
     pushLog(t.closing);
     await request({ cmd: "close" });
   }
@@ -296,8 +354,12 @@ export default function App() {
     const r = await request({ cmd: "get" });
     if (r.ok) {
       const st = r.result?.state;
+      applyDeviceState(st);
       pushLog(t.state(JSON.stringify(st)));
     } else {
+      setStatus("error");
+      setStatusText(r.error || "unknown");
+      clearDeviceState();
       pushLog(t.getError(r.error || "unknown"));
     }
   }
@@ -305,21 +367,40 @@ export default function App() {
   async function setAmbientMode(m: AmbientMode) {
     setMode(m);
     if (status !== "connected") {
+      clearDeviceState();
       pushLog(t.notConnected);
       return;
     }
     if (m === "custom") {
       pushLog(t.command("custom"));
       const r = await request({ cmd: "custom" });
+      if (!r.ok) {
+        setStatus("error");
+        setStatusText(r.error || "unknown");
+        clearDeviceState();
+      }
       pushLog(r.ok ? t.commandOk("custom") : t.commandError("custom", r.error || "unknown"));
+      if (r.ok) void readState();
     } else if (m === "adaptive") {
       pushLog(t.command("mode adaptive"));
       const r = await request({ cmd: "mode", mode: "adaptive" });
+      if (!r.ok) {
+        setStatus("error");
+        setStatusText(r.error || "unknown");
+        clearDeviceState();
+      }
       pushLog(r.ok ? t.commandOk("adaptive") : t.commandError("adaptive", r.error || "unknown"));
+      if (r.ok) void readState();
     } else {
       pushLog(t.command("anc off"));
       const r = await request({ cmd: "anc", state: "off" });
+      if (!r.ok) {
+        setStatus("error");
+        setStatusText(r.error || "unknown");
+        clearDeviceState();
+      }
       pushLog(r.ok ? t.commandOk("anc off") : t.commandError("anc off", r.error || "unknown"));
+      if (r.ok) void readState();
     }
   }
 
@@ -328,6 +409,11 @@ export default function App() {
     if (status !== "connected") return;
     pushLog(t.command(`antiwind ${v}`));
     const r = await request({ cmd: "antiwind", level: parseInt(v, 10) });
+    if (!r.ok) {
+      setStatus("error");
+      setStatusText(r.error || "unknown");
+      clearDeviceState();
+    }
     pushLog(r.ok ? t.commandOk(`antiwind ${v}`) : t.commandError("antiwind", r.error || "unknown"));
   }
 
@@ -336,10 +422,32 @@ export default function App() {
     if (status !== "connected") return;
     pushLog(t.command(`transparency ${v}`));
     const r = await request({ cmd: "transparency", level: v });
+    if (!r.ok) {
+      setStatus("error");
+      setStatusText(r.error || "unknown");
+      clearDeviceState();
+    }
     pushLog(r.ok ? t.commandOk(`transparency ${v}`) : t.commandError("transparency", r.error || "unknown"));
   }
 
   const connected = status === "connected";
+
+  React.useEffect(() => {
+    if (!connected) return;
+    const timer = window.setInterval(() => {
+      void readState();
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, [connected]);
+
+  const reportedModeLabel =
+    deviceState?.mode?.key === "adaptive"
+      ? t.adaptive
+      : deviceState?.mode?.key === "off"
+        ? t.off
+        : deviceState?.mode?.key === "anti_wind"
+          ? t.custom
+          : deviceState?.mode?.name || (connected ? t[mode] : t.off);
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-3 overflow-x-hidden bg-background px-4 py-5">
@@ -405,6 +513,7 @@ export default function App() {
               variant="outline"
               className="shrink-0"
               onClick={refreshDevices}
+              disabled={busy}
               title={t.refreshDevices}
               aria-label={t.refreshDevices}
             >
@@ -415,7 +524,7 @@ export default function App() {
             <Button
               variant="outline"
               className="min-w-0 flex-1"
-              disabled={!selectedAddr || status === "connecting"}
+              disabled={!selectedAddr || status === "connecting" || busy}
               onClick={connect}
             >
               <Power className="h-4 w-4" />
@@ -424,13 +533,19 @@ export default function App() {
             <Button
               variant="outline"
               className="min-w-0 flex-1"
-              disabled={!connected}
+              disabled={!connected || busy}
               onClick={disconnect}
             >
               <PowerOff className="h-4 w-4" />
               {t.disconnect}
             </Button>
           </div>
+          {status === "error" && selectedAddr && (
+            <Button variant="secondary" disabled={busy} onClick={connect}>
+              <RefreshCw className="h-4 w-4" />
+              {t.reconnect}
+            </Button>
+          )}
         </div>
       </Section>
 
@@ -441,21 +556,21 @@ export default function App() {
             icon={<AudioWaveform className="h-6 w-6" />}
             label={t.adaptive}
             active={mode === "adaptive"}
-            disabled={!connected}
+            disabled={!connected || busy}
             onClick={() => setAmbientMode("adaptive")}
           />
           <RoundButton
             icon={<Volume2 className="h-6 w-6" />}
             label={t.custom}
             active={mode === "custom"}
-            disabled={!connected}
+            disabled={!connected || busy}
             onClick={() => setAmbientMode("custom")}
           />
           <RoundButton
             icon={<VolumeX className="h-6 w-6" />}
             label={t.off}
             active={mode === "off"}
-            disabled={!connected}
+            disabled={!connected || busy}
             onClick={() => setAmbientMode("off")}
           />
         </div>
@@ -468,7 +583,7 @@ export default function App() {
             <Button
               key={l.value}
               variant={antiwind === l.value ? "default" : "secondary"}
-              disabled={!connected}
+              disabled={!connected || busy}
               onClick={() => setAntiwindLevel(l.value)}
               className={cn(
                 "rounded-full",
@@ -493,7 +608,7 @@ export default function App() {
               min={0}
               max={100}
               step={5}
-              disabled={!connected}
+              disabled={!connected || busy}
               onChange={setTransparencyLevel}
             />
             <span className="w-10 text-right text-sm font-semibold tabular-nums">
@@ -504,6 +619,11 @@ export default function App() {
             <span>{t.anc100}</span>
             <span>{t.transparency100}</span>
           </div>
+          <p className="text-[11px] text-muted-foreground" aria-live="polite">
+            {t.currentState}: {reportedModeLabel}
+            {` · ${typeof deviceState?.transparency?.level === "number" ? deviceState.transparency.level : transparency}%`}
+            {busy && ` · ${t.busy}`}
+          </p>
         </div>
       </Section>
 

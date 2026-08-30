@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from bridge import Bridge, gaia_frame, normalize_bt_address
+from bridge import Bridge, gaia_frame, normalize_bt_address, parse_state_value
 from gaia_transport import create_transport, take_spp_frame
 
 
@@ -17,6 +17,18 @@ class SppFramingTests(unittest.TestCase):
         self.assertEqual(normalize_bt_address(" aa-bb-cc-dd-ee-ff "), "AA:BB:CC:DD:EE:FF")
         with self.assertRaises(ValueError):
             normalize_bt_address("not-an-address")
+
+    def test_state_payload_is_decoded_and_raw_payload_is_preserved(self):
+        response = {"cmd": 0x1A01, "payload": b"\x00\x03"}
+
+        self.assertEqual(
+            parse_state_value("mode", response),
+            {"raw": "00 03", "cmd": 0x1A01, "code": 3, "name": "ADAPTIVE", "key": "adaptive"},
+        )
+        self.assertEqual(
+            parse_state_value("transparency", {"cmd": 0x1A03, "payload": b"\x00\x64"}),
+            {"raw": "00 64", "cmd": 0x1A03, "level": 100},
+        )
 
     def test_unsupported_platform_is_reported_as_exception(self):
         with patch("gaia_transport.platform.system", return_value="Linux"):
@@ -191,7 +203,8 @@ class BridgeTransportTests(unittest.IsolatedAsyncioTestCase):
 
         result = await bridge.cmd_get()
 
-        self.assertEqual(result["state"]["anc"], "00 00 00 01")
+        self.assertEqual(result["state"]["anc"]["raw"], "00 00 00 01")
+        self.assertTrue(result["state"]["anc"]["enabled"])
         self.assertIsNone(result["state"]["mode"])
         self.assertIsNone(result["state"]["transparency"])
         self.assertIsNone(result["state"]["transparent_hearing"])
