@@ -50,6 +50,8 @@ const translations = {
     max: "Max",
     auto: "Auto",
     transparency: "Transparency (Custom)",
+    anc100: "100 ANC",
+    transparency100: "100 Transparency",
     log: "Log",
     empty: "Empty",
     bridgeUnavailable: "Bridge unavailable - launch through Electron (npm run dev)",
@@ -89,6 +91,8 @@ const translations = {
     max: "Макс.",
     auto: "Авто",
     transparency: "Прозрачность (настройка)",
+    anc100: "100 ANC",
+    transparency100: "100 Прозрачность",
     log: "Лог",
     empty: "Пусто",
     bridgeUnavailable: "Мост недоступен - запустите через Electron (npm run dev)",
@@ -187,7 +191,7 @@ export default function App() {
   const [selectedAddr, setSelectedAddr] = React.useState("");
   const [mode, setMode] = React.useState<AmbientMode>("adaptive");
   const [antiwind, setAntiwind] = React.useState("0");
-  const [transparency, setTransparency] = React.useState(50);
+  const [transparency, setTransparency] = React.useState(0);
   const [log, setLog] = React.useState<string[]>([]);
   const pendingRef = React.useRef(new Map<string, PendingRequest>());
   const requestSeqRef = React.useRef(0);
@@ -482,18 +486,24 @@ export default function App() {
 
       {/* Transparency */}
       <Section title={t.transparency}>
-        <div className="flex items-center gap-3">
-          <Slider
-            value={transparency}
-            min={0}
-            max={100}
-            step={5}
-            disabled={!connected}
-            onChange={setTransparencyLevel}
-          />
-          <span className="w-10 text-right text-sm font-semibold tabular-nums">
-            {transparency}
-          </span>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-3">
+            <Slider
+              value={transparency}
+              min={0}
+              max={100}
+              step={5}
+              disabled={!connected}
+              onChange={setTransparencyLevel}
+            />
+            <span className="w-10 text-right text-sm font-semibold tabular-nums">
+              {transparency}
+            </span>
+          </div>
+          <div className="flex justify-between text-[11px] text-muted-foreground">
+            <span>{t.anc100}</span>
+            <span>{t.transparency100}</span>
+          </div>
         </div>
       </Section>
 
