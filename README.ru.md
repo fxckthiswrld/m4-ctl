@@ -11,7 +11,7 @@ Bluetooth SPP (RFCOMM) и протоколу GAIA3.
 - ANC: Adaptive, Custom, Comfort и Off.
 - Anti-Wind: Off, Max и Auto.
 - Настройка прозрачности в Custom.
-- CLI на Python и desktop-приложение Electron.
+- Desktop-приложение Electron с Python-мостом Bluetooth.
 
 ## Требования для разработки
 
@@ -24,38 +24,14 @@ macOS не нужны Python и `uv`.
 
 ## Быстрый старт
 
+Установите зависимости Python-моста и запустите desktop-приложение:
+
 ```bash
-git clone https://github.com/fxckthiswrld/m4-ctl.git
-cd m4-ctl
 uv sync
+cd ui
+npm ci
+npm run dev
 ```
-
-Найдите адрес наушников:
-
-```bash
-uv run python m4_ctl.py list
-```
-
-Пример команды:
-
-```bash
-uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF mode adaptive
-```
-
-Доступные команды CLI:
-
-```text
-list
-anc on|off
-mode adaptive|comfort|anti_wind|off
-custom
-antiwind 0|1|2
-transparency 0..100
-get
-```
-
-`transparency 0` соответствует максимальному ANC в Custom, `100` - максимальной
-прозрачности.
 
 ## Desktop UI
 
@@ -82,6 +58,10 @@ npm run dist:win
 ```
 
 Артефакты: `ui/release/*.exe`.
+
+GitHub Actions запускает тесты моста и проверки UI для каждого push и pull
+request. При отправке тега вида `v*` дополнительно собираются native-артефакты
+для Windows и macOS и публикуются в GitHub Release.
 
 ### macOS
 
@@ -125,7 +105,6 @@ gh release create v0.2.1 --title "v0.2.1" --generate-notes
 Momentum 4 использует GAIA3 с vendor `0x0495` и RFCOMM-сервисом
 `a2129ff3-081b-4c45-8afe-469d9c4842ec`.
 
-- `m4_ctl.py` - CLI.
 - `bridge.py` - JSON Lines-мост для Electron.
 - `gaia_transport.py` - SPP-транспорт: WinRT на Windows и IOBluetooth на macOS.
 

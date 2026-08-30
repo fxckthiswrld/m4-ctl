@@ -28,7 +28,7 @@ function startBridge() {
     const root = path.join(__dirname, "..", "..");
     bridge = spawn("uv", ["run", "python", "bridge.py"], {
       cwd: root,
-      shell: true,
+      shell: false,
     });
   }
   bridgeOut = "";
@@ -56,12 +56,23 @@ function startBridge() {
       mainWindow.webContents.send("bridge:log", d.toString());
     }
   });
+  bridge.stdin.on("error", (error) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("bridge:log", `[bridge] ошибка stdin: ${error.message}`);
+    }
+  });
 
+  const child = bridge;
+  bridge.on("error", (error) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("bridge:log", `[bridge] ошибка запуска: ${error.message}`);
+    }
+  });
   bridge.on("exit", (code) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("bridge:log", `[bridge] процесс завершён (${code})`);
     }
-    bridge = null;
+    if (bridge === child) bridge = null;
   });
 }
 
@@ -75,6 +86,9 @@ function stopBridge() {
 
 function sendToBridge(msg) {
   if (!bridge) startBridge();
+  if (!bridge || !bridge.stdin || bridge.stdin.destroyed || bridge.stdin.writableEnded) {
+    throw new Error("bridge process is unavailable");
+  }
   bridge.stdin.write(JSON.stringify(msg) + "\n");
 }
 

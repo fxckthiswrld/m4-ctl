@@ -23,6 +23,10 @@ import type { BridgeReply, Device } from "@/lib/bridge";
 type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
 type AmbientMode = "adaptive" | "custom" | "off";
 type Language = "en" | "ru";
+type PendingRequest = {
+  resolve: (reply: BridgeReply) => void;
+  timer: number;
+};
 
 const translations = {
   en: {
@@ -185,7 +189,8 @@ export default function App() {
   const [antiwind, setAntiwind] = React.useState("0");
   const [transparency, setTransparency] = React.useState(50);
   const [log, setLog] = React.useState<string[]>([]);
-  const pendingRef = React.useRef<{ (m: BridgeReply): void } | null>(null);
+  const pendingRef = React.useRef(new Map<string, PendingRequest>());
+  const requestSeqRef = React.useRef(0);
   const logRef = React.useRef<string[]>([]);
 
   React.useEffect(() => {
@@ -202,30 +207,48 @@ export default function App() {
     const w = window as any;
     if (!w.m4) return;
     setBridgeReady(true);
-    w.m4.onReply((msg: BridgeReply) => {
-      if (pendingRef.current) {
-        const cb = pendingRef.current;
-        pendingRef.current = null;
-        cb(msg);
-      }
+    const offReply = w.m4.onReply((msg: BridgeReply) => {
+      const id = msg.id == null ? null : String(msg.id);
+      const key = id || (pendingRef.current.size === 1 ? pendingRef.current.keys().next().value : null);
+      if (!key) return;
+      const pending = pendingRef.current.get(key);
+      if (!pending) return;
+      window.clearTimeout(pending.timer);
+      pendingRef.current.delete(key);
+      pending.resolve(msg);
     });
-    w.m4.onLog((text: string) => {
+    const offLog = w.m4.onLog((text: string) => {
       pushLog(text.replace(/\n$/, ""));
     });
     refreshDevices();
+    return () => {
+      offReply?.();
+      offLog?.();
+      for (const pending of pendingRef.current.values()) {
+        window.clearTimeout(pending.timer);
+      }
+      pendingRef.current.clear();
+    };
   }, []);
 
   function request(msg: any): Promise<BridgeReply> {
     const w = window as any;
+    if (!w.m4) return Promise.resolve({ ok: false, error: "bridge unavailable" });
+    const id = `ui-${++requestSeqRef.current}`;
+    const payload = { ...msg, id };
     return new Promise((resolve) => {
-      pendingRef.current = resolve;
-      w.m4.cmd(msg);
-      setTimeout(() => {
-        if (pendingRef.current) {
-          pendingRef.current = null;
-          resolve({ ok: false, error: "timeout" });
-        }
+      const timer = window.setTimeout(() => {
+        if (!pendingRef.current.delete(id)) return;
+        resolve({ ok: false, error: "timeout", id });
       }, 20000);
+      pendingRef.current.set(id, { resolve, timer });
+      Promise.resolve(w.m4.cmd(payload)).catch((error: unknown) => {
+        const pending = pendingRef.current.get(id);
+        if (!pending) return;
+        window.clearTimeout(pending.timer);
+        pendingRef.current.delete(id);
+        resolve({ ok: false, error: error instanceof Error ? error.message : String(error), id });
+      });
     });
   }
 

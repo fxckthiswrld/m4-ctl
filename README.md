@@ -13,7 +13,7 @@ Windows and macOS are supported.
 - ANC modes: Adaptive, Custom, Comfort, and Off.
 - Anti-Wind: Off, Max, and Auto.
 - Transparency adjustment in Custom mode.
-- Python CLI and Electron desktop app.
+- Electron desktop app with a Python Bluetooth bridge.
 
 ## Development Requirements
 
@@ -26,37 +26,14 @@ not need Python or `uv`.
 
 ## Quick Start
 
+Install the Python bridge dependencies and start the desktop UI:
+
 ```bash
-git clone https://github.com/fxckthiswrld/m4-ctl.git
-cd m4-ctl
 uv sync
+cd ui
+npm ci
+npm run dev
 ```
-
-Find the headphone address:
-
-```bash
-uv run python m4_ctl.py list
-```
-
-Example command:
-
-```bash
-uv run python m4_ctl.py --addr AA:BB:CC:DD:EE:FF mode adaptive
-```
-
-Available CLI commands:
-
-```text
-list
-anc on|off
-mode adaptive|comfort|anti_wind|off
-custom
-antiwind 0|1|2
-transparency 0..100
-get
-```
-
-`transparency 0` is maximum ANC in Custom mode; `100` is maximum transparency.
 
 ## Desktop UI
 
@@ -83,6 +60,10 @@ npm run dist:win
 ```
 
 Artifacts: `ui/release/*.exe`.
+
+GitHub Actions runs the bridge tests and UI checks for every push and pull
+request. Pushing a tag matching `v*` additionally builds native Windows and
+macOS artifacts and publishes them to a GitHub Release.
 
 ### macOS
 
@@ -125,7 +106,6 @@ gh release create v0.2.1 --title "v0.2.1" --generate-notes
 Momentum 4 uses GAIA3 with vendor `0x0495` and RFCOMM service
 `a2129ff3-081b-4c45-8afe-469d9c4842ec`.
 
-- `m4_ctl.py`: CLI.
 - `bridge.py`: JSON Lines bridge for Electron.
 - `gaia_transport.py`: SPP transport using WinRT on Windows and IOBluetooth on macOS.
 

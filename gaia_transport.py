@@ -550,8 +550,7 @@ def create_transport(bt_addr: str) -> BaseSppTransport:
         return WinSppTransport(bt_addr)
     elif system == "Darwin":
         return MacSppTransport(bt_addr)
-    else:
-        sys.exit(f"Неподдерживаемая ОС: {system}")
+    raise RuntimeError(f"Неподдерживаемая ОС: {system}")
 
 
 def list_paired_devices():
@@ -566,7 +565,7 @@ def list_paired_devices():
 
 def _list_paired_windows():
     if not HAS_WINRT:
-        sys.exit("На Windows нужны пакеты winrt (см. сообщение в connect).")
+        raise RuntimeError("На Windows нужны пакеты winrt (см. сообщение в connect).")
     from winrt.windows.devices.enumeration import DeviceInformation, DeviceClass
     import re
 
@@ -632,7 +631,7 @@ def _mac_call(obj, attr):
 
 def _list_paired_macos():
     if not HAS_IOBT:
-        sys.exit("На macOS нужен PyObjC IOBluetooth: pip install pyobjc-framework-IOBluetooth")
+        raise RuntimeError("На macOS нужен PyObjC IOBluetooth: pip install pyobjc-framework-IOBluetooth")
     devs = IOBluetoothDevice.pairedDevices()
     out = []
     for d in devs:

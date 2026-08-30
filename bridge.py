@@ -236,14 +236,24 @@ async def main():
         line = line.strip()
         if not line:
             continue
+        request_id = None
         try:
             msg = json.loads(line)
+            if not isinstance(msg, dict):
+                raise ValueError("сообщение должно быть JSON-объектом")
+            request_id = msg.get("id")
             async with bridge._command_lock:
                 result = await dispatch(bridge, msg)
-            sys.stdout.write(json.dumps({"ok": True, "result": result}, ensure_ascii=False) + "\n")
+            reply = {"ok": True, "result": result}
+            if request_id is not None:
+                reply["id"] = request_id
+            sys.stdout.write(json.dumps(reply, ensure_ascii=False) + "\n")
             sys.stdout.flush()
         except Exception as e:
-            sys.stdout.write(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False) + "\n")
+            reply = {"ok": False, "error": str(e)}
+            if request_id is not None:
+                reply["id"] = request_id
+            sys.stdout.write(json.dumps(reply, ensure_ascii=False) + "\n")
             sys.stdout.flush()
 
     await bridge.cmd_close()
