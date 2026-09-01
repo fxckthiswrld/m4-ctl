@@ -80,26 +80,6 @@ npm run dist:mac
 macOS может показать предупреждение при запуске, пока приложение не подписано и
 не notarized Apple.
 
-## Релиз
-
-1. Поднимите версию в `pyproject.toml`, `ui/package.json` и `ui/package-lock.json`.
-2. На Windows выполните `npm run dist:win`, на Mac - `npm run dist:mac`.
-3. Проверьте приложения на машинах без Python и `uv`.
-4. Закоммитьте исходники и lock-файлы, но не `ui/release` и `build`.
-5. Создайте тег и GitHub Release, затем прикрепите `.exe`, `.dmg` и `.zip`.
-
-Пример:
-
-```bash
-git status
-git add -u
-git commit -m "release: v0.2.1"
-git push origin master
-git tag -a v0.2.1 -m "Release v0.2.1"
-git push origin v0.2.1
-gh release create v0.2.1 --title "v0.2.1" --generate-notes
-```
-
 ## Технически
 
 Momentum 4 использует GAIA3 с vendor `0x0495` и RFCOMM-сервисом

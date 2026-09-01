@@ -49,7 +49,7 @@ const translations = {
     antiWind: "Anti-Wind",
     max: "Max",
     auto: "Auto",
-    transparency: "Transparency (Custom)",
+    transparency: "Transparency",
     anc100: "100 ANC",
     transparency100: "100 Transparency",
     log: "Log",
@@ -93,7 +93,7 @@ const translations = {
     antiWind: "Защита от ветра",
     max: "Макс.",
     auto: "Авто",
-    transparency: "Прозрачность (настройка)",
+    transparency: "Прозрачность",
     anc100: "100 ANC",
     transparency100: "100 Прозрачность",
     log: "Лог",
@@ -417,7 +417,7 @@ export default function App() {
     pushLog(r.ok ? t.commandOk(`antiwind ${v}`) : t.commandError("antiwind", r.error || "unknown"));
   }
 
-  async function setTransparencyLevel(v: number) {
+  async function commitTransparencyLevel(v: number) {
     setTransparency(v);
     if (status !== "connected") return;
     pushLog(t.command(`transparency ${v}`));
@@ -431,6 +431,7 @@ export default function App() {
   }
 
   const connected = status === "connected";
+  const customControlsDisabled = !connected || busy || mode !== "custom";
 
   React.useEffect(() => {
     if (!connected) return;
@@ -450,9 +451,9 @@ export default function App() {
           : deviceState?.mode?.name || (connected ? t[mode] : t.off);
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-3 overflow-x-hidden bg-background px-4 py-5">
+    <div className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-5 overflow-x-hidden bg-background px-4 py-5">
       {/* Hero */}
-      <div className="relative flex flex-col items-center gap-1 rounded-2xl border border-white/10 bg-gradient-to-b from-card to-card/40 px-4 py-6">
+      <div className="relative flex flex-col items-center gap-1 rounded-2xl border border-white/10 bg-gradient-to-b from-card to-card/40 p-4">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-32 rounded-t-2xl bg-primary/15 blur-3xl" />
         <Select
           value={language}
@@ -494,7 +495,7 @@ export default function App() {
 
       {/* Device */}
       <Section title={t.device}>
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <Select
               value={selectedAddr}
@@ -576,54 +577,58 @@ export default function App() {
         </div>
       </Section>
 
-      {/* Anti-Wind */}
-      <Section title={t.antiWind}>
-        <div className="grid grid-cols-3 gap-2">
-          {ANTIWIND_LEVELS.map((l) => (
-            <Button
-              key={l.value}
-              variant={antiwind === l.value ? "default" : "secondary"}
-              disabled={!connected || busy}
-              onClick={() => setAntiwindLevel(l.value)}
-              className={cn(
-                "rounded-full",
-                antiwind === l.value
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-muted-foreground"
-              )}
-            >
-              {l.value === "0" ? <Wind className="h-4 w-4" /> : <Zap className="h-4 w-4" />}
-              {t[l.key]}
-            </Button>
-          ))}
-        </div>
-      </Section>
+      {/* Custom controls */}
+      <Section title={t.custom}>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <h3 className="text-xs font-medium text-muted-foreground">{t.antiWind}</h3>
+            <div className="grid grid-cols-3 gap-2">
+              {ANTIWIND_LEVELS.map((l) => (
+                <Button
+                  key={l.value}
+                  variant={antiwind === l.value ? "default" : "secondary"}
+                  disabled={customControlsDisabled}
+                  onClick={() => setAntiwindLevel(l.value)}
+                  className={cn(
+                    "rounded-full",
+                    antiwind === l.value
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-muted-foreground"
+                  )}
+                >
+                  {l.value === "0" ? <Wind className="h-4 w-4" /> : <Zap className="h-4 w-4" />}
+                  {t[l.key]}
+                </Button>
+              ))}
+            </div>
+          </div>
 
-      {/* Transparency */}
-      <Section title={t.transparency}>
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-3">
-            <Slider
-              value={transparency}
-              min={0}
-              max={100}
-              step={5}
-              disabled={!connected || busy}
-              onChange={setTransparencyLevel}
-            />
-            <span className="w-10 text-right text-sm font-semibold tabular-nums">
-              {transparency}
-            </span>
+          <div className="flex flex-col gap-1 border-t border-white/10 pt-4">
+            <h3 className="mb-1 text-xs font-medium text-muted-foreground">{t.transparency}</h3>
+            <div className="flex items-center gap-3">
+              <Slider
+                value={transparency}
+                min={0}
+                max={100}
+                step={5}
+                disabled={customControlsDisabled}
+                onChange={setTransparency}
+                onCommit={commitTransparencyLevel}
+              />
+              <span className="w-10 text-right text-sm font-semibold tabular-nums">
+                {transparency}
+              </span>
+            </div>
+            <div className="flex justify-between text-[11px] text-muted-foreground">
+              <span>{t.anc100}</span>
+              <span>{t.transparency100}</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground" aria-live="polite">
+              {t.currentState}: {reportedModeLabel}
+              {` · ${typeof deviceState?.transparency?.level === "number" ? deviceState.transparency.level : transparency}%`}
+              {busy && ` · ${t.busy}`}
+            </p>
           </div>
-          <div className="flex justify-between text-[11px] text-muted-foreground">
-            <span>{t.anc100}</span>
-            <span>{t.transparency100}</span>
-          </div>
-          <p className="text-[11px] text-muted-foreground" aria-live="polite">
-            {t.currentState}: {reportedModeLabel}
-            {` · ${typeof deviceState?.transparency?.level === "number" ? deviceState.transparency.level : transparency}%`}
-            {busy && ` · ${t.busy}`}
-          </p>
         </div>
       </Section>
 

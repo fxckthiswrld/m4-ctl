@@ -82,26 +82,6 @@ Artifacts: `ui/release/*.dmg` and `ui/release/*.zip`.
 Build on Apple Silicon for Apple Silicon, and on Intel for Intel. macOS may show
 a warning on first launch until the application is signed and notarized by Apple.
 
-## Release
-
-1. Bump versions in `pyproject.toml`, `ui/package.json`, and `ui/package-lock.json`.
-2. Build on Windows with `npm run dist:win` and on macOS with `npm run dist:mac`.
-3. Test the applications on machines without Python or `uv`.
-4. Commit source and lock files, but not `ui/release` or `build`.
-5. Create a Git tag and GitHub Release, then attach the `.exe`, `.dmg`, and `.zip` files.
-
-Example:
-
-```bash
-git status
-git add -u
-git commit -m "release: v0.2.1"
-git push origin master
-git tag -a v0.2.1 -m "Release v0.2.1"
-git push origin v0.2.1
-gh release create v0.2.1 --title "v0.2.1" --generate-notes
-```
-
 ## Technical Notes
 
 Momentum 4 uses GAIA3 with vendor `0x0495` and RFCOMM service

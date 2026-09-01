@@ -22,8 +22,8 @@ export function Slider({
   onChange,
   onCommit,
 }: SliderProps) {
-  const [drag, setDrag] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
+  const dragRef = React.useRef(false);
 
   const pct = max === min ? 0 : ((value - min) / (max - min)) * 100;
 
@@ -45,18 +45,24 @@ export function Slider({
         className
       )}
       onPointerDown={(e) => {
-        setDrag(true);
-        (e.target as Element).releasePointerCapture?.(e.pointerId);
+        dragRef.current = true;
+        e.currentTarget.setPointerCapture(e.pointerId);
         onChange?.(valueFromEvent(e));
       }}
       onPointerMove={(e) => {
-        if (drag) onChange?.(valueFromEvent(e));
+        if (dragRef.current) onChange?.(valueFromEvent(e));
       }}
       onPointerUp={(e) => {
-        setDrag(false);
-        onCommit?.(valueFromEvent(e));
+        if (!dragRef.current) return;
+        const nextValue = valueFromEvent(e);
+        dragRef.current = false;
+        e.currentTarget.releasePointerCapture(e.pointerId);
+        onChange?.(nextValue);
+        onCommit?.(nextValue);
       }}
-      onPointerLeave={() => drag && setDrag(false)}
+      onPointerCancel={() => {
+        dragRef.current = false;
+      }}
     >
       <div className="absolute top-1/2 h-1.5 w-full -translate-y-1/2 rounded-full bg-secondary" />
       <div
