@@ -1,0 +1,101 @@
+name: Bug report
+description: Report a reproducible problem with Momentum 4 Control
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and did not find a duplicate.
+          required: true
+        - label: I am using Sennheiser Momentum 4 headphones on Windows or macOS.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What happened? Include any visible error messages.
+      placeholder: Describe the problem and when it occurs.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable sequence that triggers the problem.
+      placeholder: |
+        1. Pair the headphones with the computer.
+        2. Open Momentum 4 Control.
+        3. Select ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: Application version
+      description: Use the release version or commit SHA if running from source.
+      placeholder: v0.2.5
+    validations:
+      required: true
+
+  - type: input
+    id: firmware-version
+    attributes:
+      label: Headphone firmware version
+      description: Find this in the Sennheiser Smart Control app. Enter "unknown" if unavailable.
+      placeholder: 2.13.28
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation method
+      options:
+        - GitHub release installer
+        - GitHub release portable build
+        - Running from source
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste relevant bridge or application output. Remove Bluetooth addresses and other personal information first.
+      render: shell
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add screenshots or any other details that may help diagnose the problem.
