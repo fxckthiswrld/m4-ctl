@@ -7,7 +7,7 @@
 
 Мост держит одно SPP-соединение открытым (keepalive) всё время работы аппы.
 Если наушник закрыл канал после ответа, следующая команда авто-пересоздаёт
-транспорт (на macOS keepalive-поток транспорта переоткрывает канал сам).
+транспорт с ограниченным числом попыток.
 """
 
 import asyncio
@@ -238,6 +238,10 @@ class Bridge:
             ("transparency", 0x1A03),
             ("transparent_hearing", 0x1805),
         ]:
+            if self.tr is None:
+                state[name] = None
+                errors[name] = "SPP connection lost; remaining state reads skipped"
+                continue
             try:
                 f = await self._gaia(gaia_frame(cmd))
                 state[name] = parse_state_value(name, parse_gaia_rsp(f))
@@ -286,6 +290,9 @@ class Bridge:
             raise RuntimeError("не подключено")
         result = {"battery": None, "firmware": None, "errors": {}}
         for name, command in [("battery", 0x0603), ("firmware", 0x1202)]:
+            if self.tr is None:
+                result["errors"][name] = "SPP connection lost; remaining info reads skipped"
+                continue
             try:
                 frame = await self._gaia(gaia_frame(command), response_timeout=9.0)
                 payload = parse_gaia_rsp(frame)["payload"]

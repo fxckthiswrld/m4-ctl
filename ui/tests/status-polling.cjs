@@ -8,12 +8,22 @@ if (process.type === "renderer") {
   let onAction;
   let desktopState;
   let retry;
+  const retryDelays = [];
   let poll;
   const originalSetInterval = window.setInterval.bind(window);
   const originalSetTimeout = window.setTimeout.bind(window);
+  const originalClearTimeout = window.clearTimeout.bind(window);
   window.setTimeout = (callback, delay, ...args) => {
-    if ([15000, 30000, 60000].includes(delay)) retry = callback;
-    return originalSetTimeout(callback, delay, ...args);
+    const timer = originalSetTimeout(callback, delay, ...args);
+    if ([15000, 30000, 60000].includes(delay)) {
+      retry = { callback, timer };
+      retryDelays.push(delay);
+    }
+    return timer;
+  };
+  window.clearTimeout = (timer) => {
+    if (retry?.timer === timer) retry = undefined;
+    originalClearTimeout(timer);
   };
   window.setInterval = (callback, delay, ...args) => {
     if (delay === 10000) poll = callback;
@@ -47,7 +57,15 @@ if (process.type === "renderer") {
     event: (event) => onEvent(event),
     action: (event) => onAction(event),
     desktop: () => desktopState,
-    retry: () => retry?.(),
+    retryDelays,
+    hasRetry: () => !!retry,
+    retry: () => {
+      const pending = retry;
+      if (pending) {
+        window.clearTimeout(pending.timer);
+        pending.callback();
+      }
+    },
     reply: (request, result, error) => onReply({
       id: request.id, ok: !error, result, error,
     }),
@@ -381,6 +399,22 @@ async function runTests() {
   mock.reply(await next("get"), undefined, "connection lost");
   await flush();
   mock.retry();
+  await reply(await next("connect"), {});
+  await reply(await next("get"), state());
+  mock.poll();
+  mock.reply(await next("get"), undefined, "connection lost");
+  await flush();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    assert.equal(mock.hasRetry(), true);
+    mock.retry();
+    await reply(await next("connect"), {});
+    mock.reply(await next("get"), undefined, "no acknowledgement");
+    await flush();
+  }
+  assert.deepEqual(mock.retryDelays.slice(-3), [15000, 30000, 60000]);
+  assert.equal(mock.hasRetry(), false, "failed state reads must not reset the retry budget");
+  assert.match(document.body.textContent, /no acknowledgement/);
+  mock.action({ action: "connect" });
   await reply(await next("connect"), {});
   await reply(await next("get"), state());
   mock.action({ action: "disconnect" });

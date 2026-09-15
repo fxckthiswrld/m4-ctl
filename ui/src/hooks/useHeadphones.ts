@@ -116,6 +116,7 @@ export function useHeadphones(t: Translations, autoConnect: boolean) {
   async function connect(address = selectedAddr, automatic = false) {
     if (!address || operation.current || suspended.current) return;
     if (automatic && manuallyStopped.current) return;
+    if (!automatic) retryAttempt.current = 0;
     setManuallyStopped(false);
     reset(); begin();
     const generation = session.current;
@@ -127,10 +128,12 @@ export function useHeadphones(t: Translations, autoConnect: boolean) {
       setStatus("connected"); setSelectedAddr(address);
       lastAddress.current = address;
       localStorage.setItem("m4-last-connected", address);
-      retryAttempt.current = 0;
       pushLog(t.connectedLog);
       await readState();
-      if (generation === session.current && statusRef.current === "connected") void readInfo();
+      if (generation === session.current && statusRef.current === "connected") {
+        retryAttempt.current = 0;
+        void readInfo();
+      }
     } else failed(result.error);
     end(generation);
   }
@@ -195,7 +198,7 @@ export function useHeadphones(t: Translations, autoConnect: boolean) {
   }, [status]);
 
   React.useEffect(() => {
-    if (!autoConnect || status !== "error" || manuallyStopped.current || suspended.current) return;
+    if (!autoConnect || status !== "error" || manuallyStopped.current || suspended.current || retryAttempt.current >= 3) return;
     const address = selectedAddr || lastAddress.current;
     if (!address) return;
     const timer = window.setTimeout(() => {
@@ -206,6 +209,7 @@ export function useHeadphones(t: Translations, autoConnect: boolean) {
 
   React.useEffect(() => {
     if (autoConnect && !previousAutoConnect.current) {
+      retryAttempt.current = 0;
       setManuallyStopped(false);
       if (statusRef.current !== "connected") void actions.current.connect(selectedAddr || lastAddress.current, true);
     }
@@ -215,6 +219,7 @@ export function useHeadphones(t: Translations, autoConnect: boolean) {
   async function suspend() { suspended.current = true; await cancel(false); }
   function resume() {
     suspended.current = false;
+    retryAttempt.current = 0;
     if (latest.current.autoConnect && !manuallyStopped.current && lastAddress.current) void connect(lastAddress.current, true);
   }
 

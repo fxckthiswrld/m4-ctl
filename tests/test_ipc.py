@@ -293,6 +293,26 @@ class BridgeTransportTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "state unavailable"):
             await bridge.cmd_get()
 
+    async def test_state_timeout_does_not_reconnect_for_remaining_getters(self):
+        bridge = Bridge()
+        bridge.addr = "AA:BB:CC:DD:EE:FF"
+        bridge.tr = transport = FakeTransport(responses=[])
+        with patch("bridge.create_transport") as factory:
+            with self.assertRaisesRegex(RuntimeError, "state unavailable"):
+                await bridge.cmd_get()
+        factory.assert_not_called()
+        self.assertEqual(transport.sent, [gaia_frame(0x1A05)])
+
+    async def test_info_timeout_does_not_reconnect_for_firmware(self):
+        bridge = Bridge()
+        bridge.addr = "AA:BB:CC:DD:EE:FF"
+        bridge.tr = transport = FakeTransport(responses=[])
+        with patch("bridge.create_transport") as factory:
+            result = await bridge.cmd_info()
+        factory.assert_not_called()
+        self.assertEqual(transport.sent, [gaia_frame(0x0603)])
+        self.assertEqual(set(result["errors"]), {"battery", "firmware"})
+
     async def test_expired_request_never_reaches_device(self):
         bridge = Bridge()
         bridge.tr = transport = FakeTransport()
