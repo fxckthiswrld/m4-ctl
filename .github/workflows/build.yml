@@ -211,8 +211,8 @@ jobs:
 
       - name: Verify embedded native bridges
         run: |
-          lipo -verify_arch arm64 "ui/release/mac-universal/Momentum 4 Control.app/Contents/Resources/bridge/arm64/m4-bridge"
-          lipo -verify_arch x86_64 "ui/release/mac-universal/Momentum 4 Control.app/Contents/Resources/bridge/x64/m4-bridge"
+          lipo "ui/release/mac-universal/Momentum 4 Control.app/Contents/Resources/bridge/arm64/m4-bridge" -verify_arch arm64
+          lipo "ui/release/mac-universal/Momentum 4 Control.app/Contents/Resources/bridge/x64/m4-bridge" -verify_arch x86_64
           python3 tests/smoke_bridge.py "ui/release/mac-universal/Momentum 4 Control.app/Contents/Resources/bridge/arm64/m4-bridge"
 
       - name: Upload universal macOS artifacts
