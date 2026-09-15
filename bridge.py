@@ -12,6 +12,7 @@
 
 import asyncio
 import json
+import platform
 import re
 import sys
 import threading
@@ -318,6 +319,8 @@ HANDLERS = {
 async def dispatch(bridge: Bridge, msg: dict):
     cmd = msg.get("cmd")
     if cmd == "list":
+        if platform.system() == "Darwin":
+            return list_paired_devices()
         return await asyncio.to_thread(list_paired_devices)
     if cmd == "connect":
         return await bridge.cmd_connect(msg.get("addr", ""))

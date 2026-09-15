@@ -2,6 +2,8 @@ import asyncio
 import importlib.util
 import threading
 import unittest
+from collections import deque
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -24,18 +26,22 @@ class MacTransportTests(unittest.IsolatedAsyncioTestCase):
             def init(self):
                 return self
 
+        self.events = deque()
+        self.native_threads = []
         self.run_loop = Mock()
+        self.run_loop.runMode_beforeDate_.side_effect = self.pump
         objc = SimpleNamespace(
             registerMetaDataForSelector=Mock(),
             typedSelector=lambda signature: lambda method: method,
+            autorelease_pool=nullcontext,
         )
         foundation = SimpleNamespace(
             NSObject=NSObject,
-            NSRunLoop=SimpleNamespace(currentRunLoop=lambda: self.run_loop),
+            NSRunLoop=SimpleNamespace(mainRunLoop=lambda: self.run_loop),
             NSDate=SimpleNamespace(dateWithTimeIntervalSinceNow_=lambda delay: delay),
+            NSDefaultRunLoopMode="default",
         )
         self.device = Mock()
-        self.device.openConnection.return_value = 0
         service = Mock()
         service.getServiceName.return_value = "GAIA"
         service.getRFCOMMChannelID_.return_value = (0, 15)
@@ -51,103 +57,143 @@ class MacTransportTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict("sys.modules", {"objc": objc, "Foundation": foundation, "IOBluetooth": bluetooth}):
             spec.loader.exec_module(self.module)
         self.transport = self.module.MacSppTransport("AA:BB:CC:DD:EE:FF")
-        self.transport._closed = False
-        self.transport._loop = asyncio.get_running_loop()
-        self.transport._q = asyncio.Queue()
         self.channel = Mock()
-        self.device.openRFCOMMChannelAsync_withChannelID_delegate_.return_value = (0, self.channel)
+        self.channel.isOpen.return_value = False
+        self.open_started = asyncio.Event()
+        self.device.openRFCOMMChannelAsync_withChannelID_delegate_.side_effect = self.open_channel
+
+    async def asyncTearDown(self):
+        await self.transport.close()
+
+    def pump(self, mode, date):
+        self.native_threads.append(threading.current_thread())
+        self.assertIs(threading.current_thread(), threading.main_thread())
+        if self.events:
+            self.events.popleft()()
+
+    def open_channel(self, out, channel_id, delegate):
+        self.native_threads.append(threading.current_thread())
+        self.open_started.set()
+        self.events.append(lambda: self.complete_open())
+        return 0, self.channel
 
     def complete_open(self, status=0):
+        self.channel.isOpen.return_value = status == 0
         self.transport._delegate.rfcommChannelOpenComplete_status_(self.channel, status)
 
-    async def test_reconnect_reuses_class_with_separate_instances(self):
-        first = self.transport._make_delegate()
-        other = self.module.MacSppTransport("00:11:22:33:44:55")
-        second = other._make_delegate()
-        self.assertIs(type(first), type(second))
-        self.assertIsNot(first, second)
-        self.assertIs(first.transport, self.transport)
-        self.assertIs(second.transport, other)
-
-    async def test_open_pumps_run_loop_until_callback(self):
-        self.run_loop.runUntilDate_.side_effect = lambda date: self.complete_open()
-        self.assertIs(self.transport._open_channel(self.device, 15), self.channel)
-        self.run_loop.runUntilDate_.assert_called_once()
+    async def test_connect_and_receive_require_main_run_loop(self):
+        await asyncio.wait_for(self.transport.connect(), 1.0)
+        self.assertTrue(self.transport.is_alive())
         self.device.openRFCOMMChannelAsync_withChannelID_delegate_.assert_called_once_with(
             None, 15, self.transport._delegate
         )
+        frame = self.module.spp_frame(b"\x04\x95\x1b\x05\x01")
+        self.events.append(lambda: self.transport._delegate.rfcommChannelData_data_length_(
+            self.channel, frame, len(frame)
+        ))
+        self.assertEqual(await self.transport.recv_frame(timeout=0.5), frame)
+        self.assertTrue(all(thread is threading.main_thread() for thread in self.native_threads))
+        self.device.openConnection.assert_not_called()
 
-    async def test_missing_callback_fails_and_worker_closes_channel(self):
-        with patch.object(self.module.time, "monotonic", side_effect=[0, 6]):
-            self.transport._run_channel()
-        self.assertIn("openComplete timed out", self.transport._open_error)
+    async def test_reconnect_reuses_class_and_restarts_pump(self):
+        await self.transport.connect()
+        first = self.transport._delegate
+        first_pump = self.transport._pump_task
+        await self.transport.close()
+        self.assertTrue(first_pump.done())
+        await self.transport.connect()
+        second = self.transport._delegate
+        self.assertIs(type(first), type(second))
+        self.assertIsNot(first, second)
+        self.assertTrue(self.transport.is_alive())
+
+    async def test_missing_callback_fails_even_if_native_channel_is_open(self):
+        self.device.openRFCOMMChannelAsync_withChannelID_delegate_.side_effect = None
+        self.device.openRFCOMMChannelAsync_withChannelID_delegate_.return_value = (0, self.channel)
+        self.channel.isOpen.return_value = True
+        with patch.object(self.module, "MAC_OPEN_TIMEOUT", 0.03):
+            with self.assertRaisesRegex(TimeoutError, "openComplete timed out"):
+                await self.transport.connect()
         self.assertFalse(self.transport.is_alive())
-        self.assertTrue(self.transport._opened.is_set())
+        self.assertIsNone(self.transport._pump_task)
         self.channel.closeChannel.assert_called_once()
         self.device.closeConnection.assert_not_called()
 
     async def test_failed_callback_fails_and_closes_channel(self):
-        self.run_loop.runUntilDate_.side_effect = lambda date: self.complete_open(-1)
-        self.transport._run_channel()
-        self.assertIn("openComplete failed", self.transport._open_error)
+        def fail_open():
+            self.transport._delegate.rfcommChannelOpenComplete_status_(self.channel, -1)
+
+        with patch.object(self, "complete_open", side_effect=fail_open):
+            with self.assertRaisesRegex(OSError, "openComplete failed"):
+                await self.transport.connect()
         self.channel.closeChannel.assert_called_once()
         self.assertFalse(self.transport.is_alive())
 
-    async def test_data_is_copied_and_delivered_from_callback(self):
-        delegate = self.transport._make_delegate()
+    async def test_data_is_copied_before_native_buffer_changes(self):
+        await self.transport.connect()
         frame = self.module.spp_frame(b"\x04\x95\x1b\x05\x01")
         data = bytearray(frame + b"extra")
-        delegate.rfcommChannelData_data_length_(self.channel, data, len(frame))
+        self.transport._delegate.rfcommChannelData_data_length_(self.channel, data, len(frame))
         data[:] = bytes(len(data))
         self.assertEqual(await self.transport.recv_frame(timeout=0.1), frame)
 
-    async def test_remote_close_stops_worker_without_reopening(self):
-        callbacks = iter([
-            lambda: self.complete_open(),
-            lambda: self.transport._delegate.rfcommChannelClosed_(self.channel),
-        ])
-        self.run_loop.runUntilDate_.side_effect = lambda date: next(callbacks)()
-        self.transport._run_channel()
+    async def test_remote_close_unblocks_receive_without_reopening(self):
+        await self.transport.connect()
+        self.events.append(lambda: self.transport._delegate.rfcommChannelClosed_(self.channel))
+        self.assertEqual(await self.transport.recv_frame(timeout=0.5), b"")
         self.assertFalse(self.transport.is_alive())
         self.device.openRFCOMMChannelAsync_withChannelID_delegate_.assert_called_once()
-        self.channel.closeChannel.assert_called_once()
-        self.assertEqual(await self.transport.recv_frame(timeout=0.1), b"")
         with self.assertRaises(OSError):
             await self.transport.send(b"\x04\x95\x1a\x05")
 
     async def test_unrelated_rfcomm_service_is_not_opened(self):
         self.device.services.return_value[0].getServiceName.return_value = "Hands-Free unit"
-        self.transport._run_channel()
-        self.assertIn("GAIA3 RFCOMM service not found", self.transport._open_error)
+        with self.assertRaisesRegex(OSError, "GAIA3 RFCOMM service not found"):
+            await self.transport.connect()
         self.device.openRFCOMMChannelAsync_withChannelID_delegate_.assert_not_called()
+        self.assertIsNone(self.transport._pump_task)
 
-    async def test_cancelled_discovery_does_not_open_channel(self):
-        def discover():
-            self.transport._closed = True
-            return self.device.services.return_value
+    async def test_cancelled_connect_closes_native_channel_and_pump(self):
+        def open_without_callback(*args):
+            self.open_started.set()
+            return 0, self.channel
 
-        self.device.services.side_effect = discover
-        self.transport._run_channel()
-        self.assertIn("cancelled", self.transport._open_error)
-        self.device.openRFCOMMChannelAsync_withChannelID_delegate_.assert_not_called()
-
-    async def test_cancelled_connect_stops_and_joins_worker(self):
-        started = threading.Event()
-
-        def worker():
-            started.set()
-            while not self.transport._closed:
-                threading.Event().wait(0.01)
-            self.transport._opened.set()
-
-        with patch.object(self.transport, "_thread_main", side_effect=worker):
-            task = asyncio.create_task(self.transport.connect())
-            self.assertTrue(await asyncio.to_thread(started.wait, 1.0))
-            task.cancel()
-            with self.assertRaises(asyncio.CancelledError):
-                await task
-        self.assertFalse(self.transport._thread.is_alive())
+        self.device.openRFCOMMChannelAsync_withChannelID_delegate_.side_effect = open_without_callback
+        task = asyncio.create_task(self.transport.connect())
+        await asyncio.wait_for(self.open_started.wait(), 0.5)
+        pump = self.transport._pump_task
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertTrue(pump.done())
+        self.channel.setDelegate_.assert_called_once_with(None)
+        self.channel.closeChannel.assert_called_once()
         self.assertFalse(self.transport.is_alive())
+
+    async def test_background_thread_connect_fails_before_native_call(self):
+        with self.assertRaisesRegex(RuntimeError, "main thread"):
+            await asyncio.to_thread(lambda: asyncio.run(self.transport.connect()))
+        self.device.openRFCOMMChannelAsync_withChannelID_delegate_.assert_not_called()
+
+    async def test_native_pump_failure_unblocks_connect(self):
+        self.run_loop.runMode_beforeDate_.side_effect = RuntimeError("run loop failed")
+        with self.assertRaisesRegex(OSError, "closed while opening"):
+            await asyncio.wait_for(self.transport.connect(), 0.5)
+        self.channel.closeChannel.assert_called_once()
+        self.assertFalse(self.transport.is_alive())
+
+    async def test_device_listing_stays_on_main_thread(self):
+        from bridge import Bridge, dispatch
+
+        threads = []
+
+        def list_devices():
+            threads.append(threading.current_thread())
+            return []
+
+        with patch("bridge.platform.system", return_value="Darwin"), patch("bridge.list_paired_devices", side_effect=list_devices):
+            self.assertEqual(await dispatch(Bridge(), {"cmd": "list"}), [])
+        self.assertEqual(threads, [threading.main_thread()])
 
 
 if __name__ == "__main__":

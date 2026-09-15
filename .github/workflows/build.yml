@@ -60,6 +60,22 @@ jobs:
         working-directory: ui
         run: xvfb-run --auto-servernum npx electron --no-sandbox tests/desktop-smoke.cjs
 
+  test-macos:
+    name: macOS Bluetooth event loop
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install Python dependencies
+        run: uv sync --dev
+
+      - name: Test native Cocoa event delivery and macOS transport
+        run: uv run python -m unittest discover -s tests -p 'test_mac*.py' -v
+
   build-windows:
     name: Windows app
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
@@ -121,7 +137,7 @@ jobs:
           - arch: x64
             runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
-    needs: test
+    needs: [test, test-macos]
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -229,9 +229,11 @@ class WinSppTransport(BaseSppTransport):
 
 # ---------- macOS: IOBluetooth (PyObjC) ----------
 
+MAC_OPEN_TIMEOUT = 5.0
+
 try:
     import objc
-    from Foundation import NSObject, NSRunLoop, NSDate
+    from Foundation import NSObject, NSRunLoop, NSDate, NSDefaultRunLoopMode
     from IOBluetooth import IOBluetoothDevice, IOBluetoothSDPUUID
     HAS_IOBT = True
 except ImportError:
@@ -249,6 +251,8 @@ if HAS_IOBT:
         @objc.typedSelector(b"v@:@i")
         def rfcommChannelOpenComplete_status_(self, channel, status):
             transport = self.transport
+            if transport._closed:
+                return
             transport._open_status = status
             print(f"[mac] openComplete status={status:#x}")
             transport._open_done.set()
@@ -265,50 +269,62 @@ if HAS_IOBT:
             transport = self.transport
             print("[mac] channel closed")
             transport._closed = True
+            transport._open_done.set()
             transport._loop.call_soon_threadsafe(transport._q.put_nowait, b"")
+
+
+async def _mac_run_loop():
+    """Service Cocoa events on the main thread while asyncio awaits Bluetooth."""
+    if threading.current_thread() is not threading.main_thread():
+        raise RuntimeError("IOBluetooth requires the main thread")
+    run_loop = NSRunLoop.mainRunLoop()
+    while True:
+        with objc.autorelease_pool():
+            run_loop.runMode_beforeDate_(
+                NSDefaultRunLoopMode, NSDate.dateWithTimeIntervalSinceNow_(0.001)
+            )
+        await asyncio.sleep(0.01)
 
 
 class MacSppTransport(BaseSppTransport):
     """RFCOMM-канал через IOBluetooth.
 
-    IOBluetooth требует run-loop: подключаемся и читаем в фоновом потоке,
-    данные приходят в delegate-колбэках -> asyncio-очередь.
+    Все операции IOBluetooth выполняются на главном потоке. Cocoa run-loop
+    обслуживается между шагами asyncio, включая ожидание открытия и чтения.
     """
 
     def __init__(self, bt_addr: str):
         super().__init__(bt_addr)
         self._loop = None
         self._q = None
-        self._thread = None
+        self._pump_task = None
         self._device = None
         self._channel = None
         self._delegate = None
         self._closed = True
-        self._opened = threading.Event()
         self._channel_id = None
-        self._open_done = threading.Event()
+        self._open_done = asyncio.Event()
         self._open_status = None
-        self._open_error = None
         self._rx_buffer = bytearray()
 
     async def connect(self):
         if not HAS_IOBT:
             raise RuntimeError("На macOS нужен PyObjC IOBluetooth: pip install pyobjc-framework-IOBluetooth")
-        if self._thread is not None and self._thread.is_alive():
-            raise RuntimeError("RFCOMM worker is already running")
+        if threading.current_thread() is not threading.main_thread():
+            raise RuntimeError("IOBluetooth connect must run on the main thread")
+        if self._pump_task is not None:
+            raise RuntimeError("RFCOMM transport is already running")
         self._loop = asyncio.get_running_loop()
         self._q = asyncio.Queue()
         self._closed = False
-        self._opened.clear()
-        self._open_error = None
         self._rx_buffer.clear()
-        self._thread = threading.Thread(target=self._thread_main, daemon=True)
-        self._thread.start()
+        self._pump_task = asyncio.create_task(self._pump_events())
         try:
-            if not await asyncio.to_thread(self._opened.wait, 15.0):
-                raise TimeoutError("Timed out opening GAIA3 RFCOMM channel on macOS")
+            print("[mac] IOBluetooth on main thread; Cocoa event pump active")
+            self._prepare_channel()
+            await self._open_channel(self._device, self._channel_id)
             if not self.is_alive():
-                raise RuntimeError(self._open_error or "Не удалось открыть RFCOMM-канал GAIA3 на macOS.")
+                raise RuntimeError("Не удалось открыть RFCOMM-канал GAIA3 на macOS.")
         except BaseException:
             await self.close()
             raise
@@ -320,30 +336,30 @@ class MacSppTransport(BaseSppTransport):
         self._delegate.transport = self
         return self._delegate
 
-    def _thread_main(self):
-        with objc.autorelease_pool():
-            self._run_channel()
-
-    def _run_channel(self):
-        opened = self._opened
-
+    async def _pump_events(self):
         try:
+            await _mac_run_loop()
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            print(f"[mac] Cocoa event pump failed: {error!r}")
+            self._closed = True
+            self._open_done.set()
+            self._q.put_nowait(b"")
+
+    def _prepare_channel(self):
+        with objc.autorelease_pool():
             # IOBluetooth ожидает формат с дефисами: 80-C3-BA-9C-A5-4F
             dev_addr = self.bt_addr.replace(":", "-")
             print(f"[mac] ищем устройство {dev_addr}")
             dev = IOBluetoothDevice.deviceWithAddressString_(dev_addr)
             if dev is None:
-                print("[mac] устройство не найдено по адресу")
-                opened.set()
-                return
+                raise OSError("Bluetooth device not found")
             self._device = dev
             if self._closed:
                 return
             print(f"[mac] найдено: {_mac_attr(dev, 'name')}")
-            status = dev.openConnection()
-            print(f"[mac] openConnection -> {status:#x}")
-            if status != 0:
-                raise OSError(f"Bluetooth openConnection failed: {status:#x}")
+            # Async RFCOMM open also establishes the baseband connection if needed.
 
             sdp_uuid = _mac_sdp_uuid(GAIA3_SPP_UUID)
             channel_id = None
@@ -391,53 +407,25 @@ class MacSppTransport(BaseSppTransport):
                 raise OSError("GAIA3 RFCOMM service not found")
             self._channel_id = channel_id
 
-            print(f"[mac] открываю RFCOMM канал {channel_id}")
-            self._channel = self._open_channel(dev, channel_id)
-            if self._closed:
-                return
-            if self._channel is None:
-                print(f"[mac] не удалось открыть канал {channel_id}")
-                opened.set()
-                return
-            print("[mac] RFCOMM канал открыт")
-            opened.set()
-
-            while not self._closed:
-                NSRunLoop.currentRunLoop().runUntilDate_(
-                    NSDate.dateWithTimeIntervalSinceNow_(0.1)
-                )
-        except Exception as e:
-            self._open_error = str(e)
-            print(f"[mac] исключение: {e!r}")
-        finally:
-            self._closed = True
-            channel, self._channel = self._channel, None
-            try:
-                if channel is not None:
-                    channel.closeChannel()
-            except Exception as error:
-                print(f"[mac] closeChannel failed: {error!r}")
-            self._delegate = None
-            self._device = None
-            opened.set()
-
-    def _open_channel(self, dev, channel_id):
-        """Pump the owning run loop until the asynchronous open is confirmed."""
+    async def _open_channel(self, dev, channel_id):
+        """Await confirmation while the main-thread Cocoa pump delivers events."""
         if self._closed:
             raise OSError("RFCOMM connection cancelled")
         open_done = self._open_done
         open_done.clear()
         self._open_status = None
         delegate = self._make_delegate()
+        print(f"[mac] opening RFCOMM channel {channel_id} on main thread")
         status, channel = dev.openRFCOMMChannelAsync_withChannelID_delegate_(None, channel_id, delegate)
         self._channel = channel
+        print(f"[mac] openRFCOMMChannelAsync -> {status:#x}, channel={channel is not None}")
         if status != 0 or channel is None:
             raise OSError(f"RFCOMM open failed: {status:#x}")
-        deadline = time.monotonic() + 5.0
-        while not open_done.is_set() and not self._closed:
-            if time.monotonic() >= deadline:
-                raise TimeoutError("RFCOMM openComplete timed out")
-            NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(0.05))
+        try:
+            await asyncio.wait_for(open_done.wait(), MAC_OPEN_TIMEOUT)
+        except asyncio.TimeoutError:
+            print(f"[mac] openComplete timed out; isOpen={channel.isOpen()}")
+            raise TimeoutError("RFCOMM openComplete timed out") from None
         if self._closed:
             raise OSError("RFCOMM closed while opening")
         if self._open_status != 0:
@@ -503,9 +491,23 @@ class MacSppTransport(BaseSppTransport):
 
     async def close(self):
         self._closed = True
-        if self._thread is not None:
-            # Native cleanup runs on the owning thread. Do not disconnect A2DP/HFP.
-            await asyncio.to_thread(self._thread.join, 2.0)
+        self._open_done.set()
+        channel, self._channel = self._channel, None
+        try:
+            if channel is not None:
+                try:
+                    channel.setDelegate_(None)
+                finally:
+                    channel.closeChannel()
+        except Exception as error:
+            print(f"[mac] closeChannel failed: {error!r}")
+        finally:
+            self._delegate = None
+            self._device = None
+            if self._pump_task is not None:
+                self._pump_task.cancel()
+                await asyncio.gather(self._pump_task, return_exceptions=True)
+                self._pump_task = None
 
 
 def create_transport(bt_addr: str) -> BaseSppTransport:
