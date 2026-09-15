@@ -1,3 +1,4 @@
+import asyncio
 import json
 import subprocess
 import sys
@@ -5,8 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from bridge import Bridge, gaia_frame, normalize_bt_address, parse_state_value
-from gaia_transport import create_transport, take_spp_frame
+from bridge import Bridge, execute_request, gaia_frame, normalize_bt_address, parse_gaia_rsp, parse_state_value
+from gaia_transport import create_transport, spp_frame, take_spp_frame
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,15 +20,15 @@ class SppFramingTests(unittest.TestCase):
             normalize_bt_address("not-an-address")
 
     def test_state_payload_is_decoded_and_raw_payload_is_preserved(self):
-        response = {"cmd": 0x1A01, "payload": b"\x00\x03"}
+        response = {"cmd": 0x1B01, "payload": b"\x01\x02\x02\x00\x03\x01"}
 
         self.assertEqual(
             parse_state_value("mode", response),
-            {"raw": "00 03", "cmd": 0x1A01, "code": 3, "name": "ADAPTIVE", "key": "adaptive"},
+            {"raw": "01 02 02 00 03 01", "cmd": 0x1B01, "antiwind": 2, "name": "ADAPTIVE", "key": "adaptive"},
         )
         self.assertEqual(
-            parse_state_value("transparency", {"cmd": 0x1A03, "payload": b"\x00\x64"}),
-            {"raw": "00 64", "cmd": 0x1A03, "level": 100},
+            parse_state_value("transparency", {"cmd": 0x1B03, "payload": b"\x64"}),
+            {"raw": "64", "cmd": 0x1B03, "level": 100},
         )
 
     def test_unsupported_platform_is_reported_as_exception(self):
@@ -48,8 +49,31 @@ class SppFramingTests(unittest.TestCase):
         frame = b"\xff\x03\x00\x04\x04\x95\x1a\x05\x00\x00\x00\x01"
         buffer = bytearray(b"noise" + frame)
 
-        self.assertEqual(take_spp_frame(buffer), b"")
         self.assertEqual(take_spp_frame(buffer), frame)
+
+    def test_marker_split_after_noise_is_preserved(self):
+        frame = spp_frame(gaia_frame(0x1B05, b"\x01"))
+        buffer = bytearray(b"noise" + frame[:1])
+        self.assertIsNone(take_spp_frame(buffer))
+        buffer.extend(frame[1:])
+        self.assertEqual(take_spp_frame(buffer), frame)
+
+    def test_modes_are_decoded_independently(self):
+        for payload, key, wind in [(b"\x01\x01\x02\x00\x03\x00", "custom", 1),
+                                   (b"\x03\x00\x01\x02\x02\x01", "comfort", 2)]:
+            state = parse_state_value("mode", {"cmd": 0x1B01, "payload": payload})
+            self.assertEqual((state["key"], state["antiwind"]), (key, wind))
+
+    def test_malformed_states_are_not_interpreted_as_values(self):
+        for name, payload in [("mode", b"\x00\x03"), ("anc", b"\x02"),
+                              ("transparency", b"\x65"), ("anc", b"\x00\x01")]:
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                parse_state_value(name, {"cmd": 0x1B01, "payload": payload})
+
+    def test_response_header_and_length_are_validated(self):
+        frame = spp_frame(gaia_frame(0x1B05, b"\x01"))
+        for invalid in (frame[:-1], frame + b"\x00", frame[:1] + b"\x01" + frame[2:]):
+            self.assertIsNone(parse_gaia_rsp(invalid))
 
 
 class BridgeJsonlTests(unittest.TestCase):
@@ -123,6 +147,7 @@ class BridgeJsonlTests(unittest.TestCase):
 class FakeTransport:
     def __init__(self, responses=None, fail_send=False, alive=True):
         self.responses = list(responses or [])
+        self.auto_ack = responses is None
         self.fail_send = fail_send
         self.alive = alive
         self.sent = []
@@ -141,6 +166,9 @@ class FakeTransport:
         self.sent.append(frame)
 
     async def recv_frame(self, timeout=3.0):
+        if self.auto_ack:
+            command = int.from_bytes(self.sent[-1][2:4], "big")
+            return spp_frame(gaia_frame(command | 0x0100))
         return self.responses.pop(0) if self.responses else b""
 
     async def close(self):
@@ -168,6 +196,7 @@ class BridgeTransportTests(unittest.IsolatedAsyncioTestCase):
                 gaia_frame(0x1804, b"\x00"),
                 gaia_frame(0x1A04, b"\x01"),
                 gaia_frame(0x1A00, b"\x03\x00"),
+                gaia_frame(0x1A00, b"\x02\x00"),
                 gaia_frame(0x1A02, b"\x00"),
             ],
         )
@@ -196,18 +225,146 @@ class BridgeTransportTests(unittest.IsolatedAsyncioTestCase):
         factory.assert_called_once_with("AA:BB:CC:DD:EE:FF")
 
     async def test_get_keeps_state_slots_when_a_response_is_missing(self):
-        response = b"\xff\x03\x00\x04\x04\x95\x1a\x05\x00\x00\x00\x01"
+        response = spp_frame(gaia_frame(0x1B05, b"\x01"))
         transport = FakeTransport(responses=[response])
         bridge = Bridge()
         bridge.tr = transport
 
         result = await bridge.cmd_get()
 
-        self.assertEqual(result["state"]["anc"]["raw"], "00 00 00 01")
+        self.assertEqual(result["state"]["anc"]["raw"], "01")
         self.assertTrue(result["state"]["anc"]["enabled"])
         self.assertIsNone(result["state"]["mode"])
         self.assertIsNone(result["state"]["transparency"])
         self.assertIsNone(result["state"]["transparent_hearing"])
+
+    async def test_missing_ack_fails_command_and_closes_channel(self):
+        bridge = Bridge()
+        bridge.tr = transport = FakeTransport(responses=[])
+        with self.assertRaisesRegex(TimeoutError, "no acknowledgement"):
+            await bridge.cmd_anc("on")
+        self.assertTrue(transport.closed)
+        self.assertIsNone(bridge.tr)
+
+    async def test_notification_and_other_command_do_not_acknowledge_write(self):
+        bridge = Bridge()
+        bridge.tr = FakeTransport(responses=[
+            spp_frame(gaia_frame(0x1A85, b"\x01")),
+            spp_frame(gaia_frame(0x1B00)),
+            spp_frame(gaia_frame(0x1B04)),
+        ])
+        self.assertEqual(await bridge.cmd_anc("on"), {"anc": "ON"})
+        self.assertEqual(bridge.tr.responses, [])
+
+    async def test_device_error_is_not_success(self):
+        bridge = Bridge()
+        bridge.tr = FakeTransport(responses=[spp_frame(gaia_frame(0x1B84, b"\x02"))])
+        with self.assertRaisesRegex(RuntimeError, "rejected"):
+            await bridge.cmd_anc("on")
+
+    async def test_other_vendor_or_request_echo_cannot_confirm_a_command(self):
+        bridge = Bridge()
+        bridge.tr = FakeTransport(responses=[
+            spp_frame(b"\x00\x01\x1b\x04"),
+            spp_frame(gaia_frame(0x1A04, b"\x01")),
+        ])
+        with self.assertRaises(TimeoutError):
+            await bridge.cmd_anc("on")
+
+    async def test_receive_exception_discards_channel(self):
+        bridge = Bridge()
+        bridge.tr = transport = FakeTransport()
+        transport.recv_frame = AsyncMock(side_effect=OSError("receive failed"))
+        with self.assertRaises(OSError):
+            await bridge.cmd_anc("on")
+        self.assertTrue(transport.closed)
+
+    async def test_adaptive_clears_comfort_and_comfort_clears_adaptive(self):
+        for mode, cleared in [("adaptive", 2), ("comfort", 3)]:
+            bridge = Bridge()
+            bridge.tr = transport = FakeTransport()
+            with patch("bridge.asyncio.sleep", new=AsyncMock()):
+                await bridge.cmd_mode(mode)
+            self.assertIn(gaia_frame(0x1A00, bytes([cleared, 0])), transport.sent)
+
+    async def test_no_state_responses_is_an_error(self):
+        bridge = Bridge()
+        bridge.tr = FakeTransport(responses=[])
+        with self.assertRaisesRegex(RuntimeError, "state unavailable"):
+            await bridge.cmd_get()
+
+    async def test_expired_request_never_reaches_device(self):
+        bridge = Bridge()
+        bridge.tr = transport = FakeTransport()
+        with self.assertRaisesRegex(TimeoutError, "expired"):
+            await execute_request(bridge, {"cmd": "anc", "state": "on", "deadline_ms": 0})
+        self.assertEqual(transport.sent, [])
+
+    async def test_timeout_cancels_dispatch_and_closes_channel(self):
+        bridge = Bridge()
+        bridge.tr = transport = FakeTransport()
+        cancelled = asyncio.Event()
+
+        async def hang(*args):
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        with patch("bridge.COMMAND_TIMEOUT", 0.01), patch("bridge.dispatch", side_effect=hang):
+            with self.assertRaises(asyncio.TimeoutError):
+                await execute_request(bridge, {"cmd": "anc"})
+        self.assertTrue(cancelled.is_set())
+        self.assertTrue(transport.closed)
+
+    async def test_cancelled_connect_closes_candidate_transport(self):
+        bridge = Bridge()
+        transport = FakeTransport()
+        transport.connect = AsyncMock(side_effect=asyncio.CancelledError)
+        with patch("bridge.create_transport", return_value=transport):
+            with self.assertRaises(asyncio.CancelledError):
+                await bridge.cmd_connect("AA:BB:CC:DD:EE:FF")
+        self.assertTrue(transport.closed)
+
+    async def test_custom_profile_applies_all_values_and_checks_readback(self):
+        bridge = Bridge()
+        bridge.tr = transport = FakeTransport()
+        expected = {"state": {"anc": {"enabled": True}, "mode": {"key": "custom", "antiwind": 2}, "transparency": {"level": 40}}}
+        bridge.cmd_get = AsyncMock(return_value=expected)
+        with patch("bridge.asyncio.sleep", new=AsyncMock()):
+            self.assertEqual(await bridge.cmd_profile("custom", 2, 40), expected)
+        self.assertIn(gaia_frame(0x1A00, b"\x01\x02"), transport.sent)
+        self.assertEqual(transport.sent[-1], gaia_frame(0x1A02, b"\x28"))
+        bridge.cmd_get.assert_awaited_once()
+
+    async def test_profile_requires_matching_readback(self):
+        bridge = Bridge()
+        bridge.tr = FakeTransport()
+        bridge.cmd_get = AsyncMock(return_value={"state": {"anc": {"enabled": True}}})
+        with self.assertRaisesRegex(RuntimeError, "not confirmed"):
+            await bridge.cmd_profile("off", 0, 0)
+
+    async def test_invalid_profile_is_rejected_before_any_write(self):
+        for values in [("invalid", 0, 0), ("custom", 3, 0), ("custom", 0, 101), ("custom", True, 0)]:
+            bridge = Bridge()
+            bridge.tr = transport = FakeTransport()
+            with self.assertRaises(ValueError):
+                await bridge.cmd_profile(*values)
+            self.assertEqual(transport.sent, [])
+
+    async def test_info_decodes_battery_and_firmware(self):
+        bridge = Bridge()
+        bridge.tr = FakeTransport(responses=[spp_frame(gaia_frame(0x0703, b"\x52")), spp_frame(gaia_frame(0x1302, b"\x03\x12\x00"))])
+        result = await bridge.cmd_info()
+        self.assertEqual(result, {"battery": [82], "firmware": "3.18.0", "errors": {}})
+
+    async def test_unsupported_battery_does_not_hide_firmware(self):
+        bridge = Bridge()
+        bridge.tr = FakeTransport(responses=[spp_frame(gaia_frame(0x0783, b"\x01")), spp_frame(gaia_frame(0x1302, b"\x03\x12\x00"))])
+        result = await bridge.cmd_info()
+        self.assertIsNone(result["battery"])
+        self.assertEqual(result["firmware"], "3.18.0")
+        self.assertIn("battery", result["errors"])
 
 
 if __name__ == "__main__":

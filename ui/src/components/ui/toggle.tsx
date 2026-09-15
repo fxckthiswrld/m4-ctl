@@ -2,16 +2,18 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 export interface ToggleProps {
+  "aria-label"?: string;
   checked: boolean;
   disabled?: boolean;
   className?: string;
   onChange?: (checked: boolean) => void;
 }
 
-export function Toggle({ checked, disabled, className, onChange }: ToggleProps) {
+export function Toggle({ checked, disabled, className, onChange, "aria-label": label }: ToggleProps) {
   return (
     <button
       role="switch"
+      aria-label={label}
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange?.(!checked)}

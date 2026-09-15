@@ -14,6 +14,10 @@ Windows and macOS are supported.
 - Anti-Wind: Off, Max, and Auto.
 - Transparency adjustment in Custom mode.
 - Electron desktop app with a Python Bluetooth bridge.
+- Tray controls and saved profiles with rename and delete actions.
+- Optional automatic connection and recovery after sleep.
+- Battery and firmware information when reported by the headphones.
+- Diagnostic export with application version and redacted Bluetooth addresses.
 
 ## Development Requirements
 
@@ -45,6 +49,29 @@ npm run dev
 
 Electron starts `bridge.py` automatically. Choose the headphones, connect, and
 adjust the available modes in the app.
+
+The transparency slider supports arrow keys, Home, and End. Holding a key adjusts
+the preview; releasing it or leaving the slider applies the value.
+
+The Application tab contains automatic connection and close-to-tray preferences;
+both default to off. Automatic connection uses the last successfully connected
+headphones at startup and retries a lost connection. Manual disconnect or cancel
+suppresses retries until the next explicit connection, re-enabling the preference,
+or restarting the application. Use Quit in the tray menu to exit completely.
+
+Profiles start with Work, Street, and Transport presets. Save confirmed device
+settings under a new name, rename or delete profiles, and apply them from the
+window or tray. Profiles are never applied automatically on connection. The
+Diagnostics tab exports a JSON report through a save dialog.
+
+Only one application instance runs at a time. Launching it again opens the
+existing window. A crashed interface reloads automatically, preserving manual
+disconnect for the current session; repeated crashes close the app with an error.
+
+Run `python -m unittest discover -s tests -v` from the repository root and
+`npm run typecheck`, `npm run test:desktop`, and `npm run test:ui` from `ui`.
+`npm run test:smoke` exercises the real Electron/Python startup, second launch,
+renderer crash recovery, and close-to-tray behavior with isolated preferences.
 
 ## Standalone Builds
 
@@ -81,6 +108,11 @@ Artifacts: `ui/release/*.dmg` and `ui/release/*.zip`.
 
 Build on Apple Silicon for Apple Silicon, and on Intel for Intel. macOS may show
 a warning on first launch until the application is signed and notarized by Apple.
+
+The universal CI build includes separate native Python bridges for arm64 and x64
+and selects one at runtime. PyInstaller executables are kept separate to preserve
+their embedded archives. Release builds check bridge startup and JSONL commands
+without requiring connected headphones.
 
 ## Technical Notes
 

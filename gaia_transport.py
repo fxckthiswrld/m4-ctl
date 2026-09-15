@@ -59,10 +59,11 @@ def take_spp_frame(buffer: bytearray):
         if buffer[0] != 0xFF or buffer[1] != 3:
             marker = buffer.find(b"\xff\x03")
             if marker < 0:
-                buffer.clear()
+                # The next chunk may start with the second byte of the marker.
+                del buffer[:len(buffer) - (1 if buffer[-1] == 0xFF else 0)]
             else:
                 del buffer[:marker]
-            return b""
+            continue
         total = 8 + buffer[3]
         if len(buffer) < total:
             return None
@@ -104,12 +105,12 @@ class WinSppTransport(BaseSppTransport):
             raise RuntimeError("На Windows нужны пакеты winrt: pip install winrt-Windows.Devices.Bluetooth winrt-Windows.Devices.Bluetooth.Rfcomm winrt-Windows.Networking winrt-Windows.Networking.Sockets winrt-Windows.Storage.Streams")
 
         addr_int = int(self.bt_addr.replace(":", ""), 16)
-        dev = BluetoothDevice.from_bluetooth_address_async(addr_int).get()
+        dev = await BluetoothDevice.from_bluetooth_address_async(addr_int)
         if not dev or not dev.name:
             raise RuntimeError(f"Устройство {self.bt_addr} не найдено (проверь сопряжение).")
 
         sid = RfcommServiceId.from_uuid(uuid.UUID(GAIA3_SPP_UUID))
-        res = dev.get_rfcomm_services_for_id_async(sid).get()
+        res = await dev.get_rfcomm_services_for_id_async(sid)
         services = list(res.services)
         if not services:
             raise RuntimeError("RFCOMM-сервис GAIA3 не найден на устройстве.")
@@ -119,7 +120,7 @@ class WinSppTransport(BaseSppTransport):
         host = HostName(svc.connection_host_name.raw_name)
 
         self.sock = StreamSocket()
-        self.sock.connect_async(host, str(svc.connection_service_name)).get()
+        await self.sock.connect_async(host, str(svc.connection_service_name))
         print("SPP-соединение установлено.")
 
         self.reader = DataReader(self.sock.input_stream)
@@ -154,8 +155,7 @@ class WinSppTransport(BaseSppTransport):
                     break
                 n = self.reader.unconsumed_buffer_length
                 if n == 0:
-                    await asyncio.sleep(0.05)
-                    continue
+                    break
                 data = bytes(self.reader.read_buffer(n))
                 await self._rx_queue.put(data)
         finally:
@@ -197,7 +197,7 @@ class WinSppTransport(BaseSppTransport):
             raise OSError("SPP-канал не открыт")
         buf = spp_frame(gaia)
         self.writer.write_bytes(buf)
-        self.writer.store_async().get()
+        await self.writer.store_async()
         print("TX:", hexd(buf))
 
     def is_alive(self) -> bool:
@@ -325,6 +325,8 @@ class MacSppTransport(BaseSppTransport):
                 opened.set()
                 return
             self._device = dev
+            if self._closed:
+                return
             print(f"[mac] найдено: {_mac_attr(dev, 'name')}")
             status = dev.openConnection()
             print(f"[mac] openConnection -> {status:#x}")
@@ -396,6 +398,11 @@ class MacSppTransport(BaseSppTransport):
 
             print(f"[mac] открываю RFCOMM канал {channel_id}")
             self._channel = self._open_channel(dev, channel_id)
+            if self._closed:
+                if self._channel is not None:
+                    self._channel.closeChannel()
+                self._channel = None
+                return
             if self._channel is None:
                 print(f"[mac] не удалось открыть канал {channel_id}")
                 opened.set()
@@ -410,6 +417,10 @@ class MacSppTransport(BaseSppTransport):
                     print("[mac] канал закрыт, переоткрываю")
                     time.sleep(0.5)
                     ch = self._open_channel(dev, channel_id)
+                    if self._closed:
+                        if ch is not None:
+                            ch.closeChannel()
+                        break
                     if ch is not None:
                         self._channel = ch
                         print("[mac] канал переоткрыт")
@@ -566,25 +577,29 @@ def list_paired_devices():
 def _list_paired_windows():
     if not HAS_WINRT:
         raise RuntimeError("На Windows нужны пакеты winrt (см. сообщение в connect).")
-    from winrt.windows.devices.enumeration import DeviceInformation, DeviceClass
-    import re
+    from winrt.windows.devices.enumeration import DeviceInformation
 
-    try:
-        selector = BluetoothDevice.get_device_selector()
-        result = DeviceInformation.find_all_async_aqs_filter(selector).get()
-    except Exception:
-        result = DeviceInformation.find_all_async_device_class(DeviceClass.ALL).get()
+    selector = BluetoothDevice.get_device_selector_from_pairing_state(True)
+    result = DeviceInformation.find_all_async_aqs_filter(selector).get()
     seen = {}
     for d in result:
-        name = d.name or ""
-        device_id = d.id or ""
-        matches = re.findall(r"(?i)([0-9a-f]{2}(?:[:-][0-9a-f]{2}){5})", device_id)
-        if not matches:
-            matches = re.findall(r"(?i)([0-9a-f]{12})", device_id)
-        if matches and name:
-            a = re.sub(r"[:-]", "", matches[-1]).upper()
-            addr = ":".join(a[i:i + 2] for i in range(0, 12, 2))
-            seen.setdefault(addr, name)
+        device = None
+        try:
+            device = BluetoothDevice.from_id_async(d.id).get()
+            if device is None or not device.device_information.pairing.is_paired:
+                continue
+            address = device.bluetooth_address
+            if not 0 < address < 1 << 48:
+                continue
+            hex_address = f"{address:012X}"
+            addr = ":".join(hex_address[i:i + 2] for i in range(0, 12, 2))
+            seen.setdefault(addr, device.name or d.name or addr)
+        except Exception as error:
+            # A removed or inaccessible device must not hide the other paired devices.
+            print(f"[win] Cannot inspect Bluetooth device: {error}", file=sys.stderr)
+        finally:
+            if device is not None:
+                device.close()
     return [{"name": name, "address": addr} for addr, name in seen.items()]
 
 
