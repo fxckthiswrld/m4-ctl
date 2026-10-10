@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, powerMonitor, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, nativeTheme, powerMonitor, dialog } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
@@ -13,6 +13,20 @@ let rendererFailures = [];
 let bridgeStatus = { event: "stopped" };
 const pending = new Map();
 const COMMAND_TIMEOUT_MS = 60000;
+
+function themedIconPath() {
+  return path.join(__dirname, nativeTheme?.shouldUseDarkColors
+    ? "abstract_wave_icon_white.png"
+    : "abstract_wave_icon.png");
+}
+
+function updatePlatformIcon() {
+  const iconPath = themedIconPath();
+  if (process.platform === "darwin") app.dock?.setIcon?.(iconPath);
+  if (process.platform === "win32" && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setIcon?.(nativeImage.createFromPath(iconPath));
+  }
+}
 
 function publish(channel, message) {
   if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed() && !mainWindow.webContents.isCrashed()) {
@@ -152,7 +166,7 @@ function createWindow() {
     maximizable: false,
     autoHideMenuBar: true,
     title: "Momentum 4 Control",
-    icon: path.join(__dirname, "icon.ico"),
+    icon: process.platform === "win32" ? themedIconPath() : path.join(__dirname, "icon.ico"),
     backgroundColor: "#0d0d10",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -205,7 +219,9 @@ function initialize() {
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
     createWindow();
-    desktop = createDesktop({ app, Menu, Tray, nativeImage, powerMonitor, dialog, ipcMain }, showWindow, publish, stopBridge);
+    updatePlatformIcon();
+    nativeTheme?.on?.("updated", updatePlatformIcon);
+    desktop = createDesktop({ app, Menu, Tray, nativeImage, nativeTheme, powerMonitor, dialog, ipcMain }, showWindow, publish, stopBridge);
     startBridge();
 
     app.on("activate", showWindow);
@@ -218,6 +234,7 @@ function initialize() {
 
   app.on("before-quit", () => {
     quitting = true;
+    nativeTheme?.removeListener?.("updated", updatePlatformIcon);
     desktop?.dispose();
     stopBridge();
   });

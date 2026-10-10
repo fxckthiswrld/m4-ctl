@@ -67,6 +67,7 @@
       ]
     },
     "mac": {
+      "icon": "electron/icon-mac.png",
       "target": [
         "dmg",
         "zip"

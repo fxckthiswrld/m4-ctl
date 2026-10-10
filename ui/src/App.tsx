@@ -306,7 +306,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-1 border-t border-white/10 pt-4">
+          <div className="flex flex-col gap-2 border-t border-white/10 pt-4">
             <h3 className="mb-1 text-xs font-medium text-muted-foreground">{t.transparency}</h3>
             <div className="flex items-center gap-3">
               <Slider
@@ -324,7 +324,7 @@ export default function App() {
                 {deviceState?.transparency?.level == null && !busy ? "?" : transparency}
               </span>
             </div>
-            <div className="flex justify-between text-[11px] text-muted-foreground">
+            <div className="flex justify-between px-1 text-[11px] font-medium text-muted-foreground">
               <span>{t.anc100}</span>
               <span>{t.transparency100}</span>
             </div>

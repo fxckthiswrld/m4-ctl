@@ -76,7 +76,9 @@ export function Slider({
       aria-disabled={Boolean(disabled)}
       aria-orientation="horizontal"
       className={cn(
-        "relative h-6 w-full touch-none select-none rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        // Keep a 44px interaction area around the 4px track, as recommended
+        // by Apple HIG, while preserving a compact visual control.
+        "relative h-11 w-full touch-none select-none rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         disabled && "pointer-events-none opacity-50",
         className
       )}
@@ -124,13 +126,14 @@ export function Slider({
       }}
       onBlur={commitKeyboard}
     >
-      <div className="absolute top-1/2 h-1.5 w-full -translate-y-1/2 rounded-full bg-secondary" />
+      <div className="absolute top-1/2 h-1 w-full -translate-y-1/2 rounded-full bg-secondary" />
       <div
-        className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-primary"
+        className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-primary"
         style={{ width: `${pct}%` }}
       />
       <div
-        className="absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-primary bg-white shadow"
+        aria-hidden="true"
+        className="absolute top-1/2 h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/30 bg-white shadow-md shadow-black/25 transition-[box-shadow,transform] duration-100"
         style={{ left: `${pct}%` }}
       />
     </div>

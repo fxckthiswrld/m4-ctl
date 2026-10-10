@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-function createDesktop({ app, Menu, Tray, nativeImage, powerMonitor, dialog, ipcMain }, showWindow, publish, stopBridge) {
+function createDesktop({ app, Menu, Tray, nativeImage, nativeTheme, powerMonitor, dialog, ipcMain }, showWindow, publish, stopBridge) {
   let state = { language: "en", connected: false, busy: false, canConnect: false, closeToTray: false, mode: null, profiles: [] };
   let tray;
   const labels = {
@@ -27,12 +27,23 @@ function createDesktop({ app, Menu, Tray, nativeImage, powerMonitor, dialog, ipc
       { label: t.quit, click: () => app.quit() },
     ]));
   }
+  const themeIcon = () => {
+    const supportsSystemTheme = process.platform === "darwin" || process.platform === "win32";
+    const dark = supportsSystemTheme && Boolean(nativeTheme?.shouldUseDarkColors);
+    const iconName = dark ? "abstract_wave_icon_white.png" : "abstract_wave_icon.png";
+    const icon = nativeImage.createFromPath(path.join(__dirname, iconName)).resize({ width: 20, height: 20 });
+    // macOS treats template images as a monochrome mask and applies the
+    // correct menu-bar tint for light and dark appearances.
+    if (process.platform === "darwin" && typeof icon.setTemplateImage === "function") icon.setTemplateImage(true);
+    return icon;
+  };
+  const updateTrayIcon = () => { if (tray) tray.setImage(themeIcon()); };
   try {
-    const icon = nativeImage.createFromPath(path.join(__dirname, "icon.png")).resize({ width: 20, height: 20 });
-    tray = new Tray(icon);
+    tray = new Tray(themeIcon());
     tray.on("click", showWindow);
     updateMenu();
   } catch (error) { publish("bridge:log", `Tray unavailable: ${error.message}`); }
+  nativeTheme?.on?.("updated", updateTrayIcon);
 
   ipcMain.handle("desktop:sync", (_event, value) => {
     if (!value || !["en", "ru"].includes(value.language) ||
@@ -63,7 +74,13 @@ function createDesktop({ app, Menu, Tray, nativeImage, powerMonitor, dialog, ipc
   return {
     shouldHide: () => !!tray && state.closeToTray,
     disconnected: () => { state = { ...state, connected: false, busy: false, mode: null }; updateMenu(); },
-    dispose: () => { powerMonitor.removeListener("suspend", suspend); powerMonitor.removeListener("resume", resume); tray?.destroy(); tray = null; },
+    dispose: () => {
+      powerMonitor.removeListener("suspend", suspend);
+      powerMonitor.removeListener("resume", resume);
+      nativeTheme?.removeListener?.("updated", updateTrayIcon);
+      tray?.destroy();
+      tray = null;
+    },
   };
 }
 module.exports = { createDesktop };
