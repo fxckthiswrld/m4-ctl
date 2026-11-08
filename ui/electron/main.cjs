@@ -13,6 +13,24 @@ let rendererFailures = [];
 let bridgeStatus = { event: "stopped" };
 const pending = new Map();
 const COMMAND_TIMEOUT_MS = 60000;
+// Diagnostics rings: everything the bridge reports, capped for the export.
+const RING_LIMIT = 200;
+const bridgeEventRing = [];
+const bridgeLogRing = [];
+
+function recordBridgeEvent(event) {
+  bridgeEventRing.push({ at: new Date().toISOString(), event: event.event, ...(event.error ? { error: event.error } : {}) });
+  if (bridgeEventRing.length > RING_LIMIT) bridgeEventRing.shift();
+}
+
+function recordBridgeLog(line) {
+  bridgeLogRing.push(line.length > 2000 ? line.slice(0, 2000) : line);
+  if (bridgeLogRing.length > RING_LIMIT) bridgeLogRing.shift();
+}
+
+function getBridgeDiagnostics() {
+  return { events: [...bridgeEventRing], stderr: [...bridgeLogRing] };
+}
 
 function themedIconPath() {
   return path.join(__dirname, nativeTheme?.shouldUseDarkColors
@@ -35,6 +53,7 @@ function publish(channel, message) {
 }
 
 function publishEvent(event) {
+  recordBridgeEvent(event);
   if (event.event === "stopped") desktop?.disconnected();
   if (["ready", "starting", "stopped"].includes(event.event)) bridgeStatus = event;
   publish("bridge:event", event);
@@ -46,6 +65,16 @@ function failPending(error, cancelled = false) {
     publish("bridge:reply", { id, ok: false, error, cancelled });
   }
   pending.clear();
+}
+
+function bridgeEnv() {
+  const env = { ...process.env };
+  try {
+    env.M4_BRIDGE_LOG_FILE = path.join(app.getPath("userData"), "logs", "bridge.log");
+  } catch {
+    // userData may be unavailable very early; stderr logging still applies.
+  }
+  return env;
 }
 
 function startBridge() {
@@ -63,6 +92,7 @@ function startBridge() {
     const options = {
       cwd: process.resourcesPath,
       shell: false,
+      env: bridgeEnv(),
     };
     if (process.platform === "win32") options.windowsHide = true;
     bridge = spawn(executable, [], options);
@@ -74,6 +104,7 @@ function startBridge() {
       cwd: root,
       shell: false,
       windowsHide: true,
+      env: bridgeEnv(),
     });
   }
   bridgeOut = "";
@@ -108,7 +139,13 @@ function startBridge() {
   });
 
   bridge.stderr.on("data", (d) => {
-    if (bridge === child) publish("bridge:log", d.toString());
+    if (bridge !== child) return;
+    const text = d.toString();
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed) recordBridgeLog(trimmed);
+    }
+    publish("bridge:log", text);
   });
   bridge.stdin.on("error", (error) => {
     if (bridge === child) publish("bridge:log", `[bridge] ошибка stdin: ${error.message}`);
@@ -221,7 +258,7 @@ function initialize() {
     createWindow();
     updatePlatformIcon();
     nativeTheme?.on?.("updated", updatePlatformIcon);
-    desktop = createDesktop({ app, Menu, Tray, nativeImage, nativeTheme, powerMonitor, dialog, ipcMain }, showWindow, publish, stopBridge);
+    desktop = createDesktop({ app, Menu, Tray, nativeImage, nativeTheme, powerMonitor, dialog, ipcMain, getBridgeDiagnostics }, showWindow, publish, stopBridge);
     startBridge();
 
     app.on("activate", showWindow);
@@ -245,7 +282,20 @@ function initialize() {
   });
 
   ipcMain.handle("bridge:status", () => bridgeStatus);
-  ipcMain.handle("bridge:cancel", () => stopBridge("cancelled", true));
+  ipcMain.handle("bridge:cancel", () => {
+    // Soft cancel: the bridge aborts in-flight commands without a restart.
+    if (!bridge || !bridge.stdin || bridge.stdin.destroyed || bridge.stdin.writableEnded) {
+      failPending("cancelled", true);
+      return { cancelled: false };
+    }
+    try {
+      sendToBridge({ id: `cancel-${Date.now()}`, cmd: "cancel" });
+      return { cancelled: true };
+    } catch {
+      failPending("cancelled", true);
+      return { cancelled: false };
+    }
+  });
 }
 
 if (app.requestSingleInstanceLock()) initialize();

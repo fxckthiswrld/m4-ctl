@@ -348,6 +348,15 @@ async function runTests() {
   assert.match(document.body.textContent, /Battery: 82%/);
   assert.match(document.body.textContent, /Firmware: 3.18.0/);
 
+  // A device notification (ANC button on the headphones) must trigger a
+  // debounced background state refresh instead of waiting for the poll.
+  mock.event({ event: "notification", id: "0x1A84", payload: "01" });
+  await flush();
+  assert.equal(mock.requests.length, 0, "notification refresh is debounced");
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  await reply(await next("get"), state());
+  assert.equal(mock.requests.length, 0);
+
   const input = document.querySelector('input[aria-label="Profile name"]');
   const enterName = async (value) => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, value);

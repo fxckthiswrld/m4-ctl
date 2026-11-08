@@ -157,23 +157,25 @@ test("ready is available to renderers that subscribe after startup", async () =>
   assert.equal(h.invoke("status").event, "ready");
 });
 
-test("cancellation fails all pending requests and ignores old process output", async () => {
+test("cancellation asks the bridge to abort in-flight commands", async () => {
   const h = await harness();
   h.invoke("cmd", { id: "a", cmd: "get" });
   h.invoke("cmd", { id: "b", cmd: "anc", state: "on" });
   h.invoke("cancel");
-  assert.equal(h.children[0].killed, true);
-  assert.equal(h.replies().length, 2);
-  assert.ok(h.replies().every((reply) => reply.cancelled));
-  assert.equal(h.timers.size, 0);
-  h.invoke("cmd", { id: "c", cmd: "list" });
-  assert.equal(h.children.length, 2);
-  h.output(h.children[0], { id: "a", ok: true });
-  h.children[0].emit("exit", 1);
-  h.output(h.children[1], { id: "c", ok: true, result: [] });
+  // The cancel request is forwarded to the running bridge; no restart happens.
+  const sent = h.children[0].stdin.read().toString().trim().split("\n").map((line) => JSON.parse(line));
+  assert.deepEqual(sent.map((message) => message.cmd), ["get", "anc", "cancel"]);
+  assert.equal(h.children.length, 1);
+  assert.ok(!h.children[0].killed);
+  assert.equal(h.replies().length, 0);
+  assert.equal(h.timers.size, 3);
+  // The bridge aborts each in-flight command and reports it as cancelled.
+  h.output(h.children[0], { id: "a", ok: false, error: "cancelled", cancelled: true });
+  h.output(h.children[0], { id: "b", ok: false, error: "cancelled", cancelled: true });
+  h.output(h.children[0], { id: sent[2].id, ok: true, result: { cancelled: ["a", "b"] } });
   assert.equal(h.replies().length, 3);
-  assert.equal(h.replies()[2].id, "c");
-  assert.equal(h.replies()[2].ok, true);
+  assert.equal(h.replies().filter((reply) => reply.cancelled).length, 2);
+  assert.equal(h.timers.size, 0);
 });
 
 test("watchdog kills a stuck process and the next request starts a new one", async () => {

@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-function createDesktop({ app, Menu, Tray, nativeImage, nativeTheme, powerMonitor, dialog, ipcMain }, showWindow, publish, stopBridge) {
+function createDesktop({ app, Menu, Tray, nativeImage, nativeTheme, powerMonitor, dialog, ipcMain, getBridgeDiagnostics }, showWindow, publish, stopBridge) {
   let state = { language: "en", connected: false, busy: false, canConnect: false, closeToTray: false, mode: null, profiles: [] };
   let tray;
   const labels = {
@@ -57,8 +57,10 @@ function createDesktop({ app, Menu, Tray, nativeImage, nativeTheme, powerMonitor
 
   ipcMain.handle("desktop:export", async (_event, snapshot) => {
     if (!snapshot || !Array.isArray(snapshot.logs) || snapshot.logs.length > 200 || snapshot.logs.some((line) => typeof line !== "string" || line.length > 4200)) throw new Error("invalid diagnostics");
+    // Bridge-side evidence: JSONL event ring plus raw stderr, collected by main.
+    const bridge = typeof getBridgeDiagnostics === "function" ? getBridgeDiagnostics() : null;
     const report = JSON.stringify({ version: app.getVersion(), platform: process.platform, architecture: process.arch,
-      exportedAt: new Date().toISOString(), logs: snapshot.logs, state: snapshot.state ?? null, info: snapshot.info ?? null }, null, 2);
+      exportedAt: new Date().toISOString(), logs: snapshot.logs, bridge: bridge ?? null, state: snapshot.state ?? null, info: snapshot.info ?? null }, null, 2);
     if (report.length > 2_000_000) throw new Error("diagnostics too large");
     const { canceled, filePath } = await dialog.showSaveDialog({ title: "Momentum 4 Control",
       defaultPath: path.join(app.getPath("downloads"), "momentum4-diagnostics.json"),

@@ -23,6 +23,7 @@ export function useHeadphones(t: Translations, autoConnect: boolean) {
   const revision = React.useRef(0);
   const session = React.useRef(0);
   const adjusting = React.useRef(false);
+  const notificationTimer = React.useRef(0);
   const manuallyStopped = React.useRef(sessionStorage.getItem("m4-manually-stopped") === "true");
   const suspended = React.useRef(false);
   const lastAddress = React.useRef(localStorage.getItem("m4-last-connected") || "");
@@ -40,6 +41,7 @@ export function useHeadphones(t: Translations, autoConnect: boolean) {
   function clearState() {
     revision.current++;
     adjusting.current = false;
+    window.clearTimeout(notificationTimer.current);
     setDeviceState(null); setMode(null); setAntiwind(null); setTransparency(0);
   }
   function reset() {
@@ -60,7 +62,37 @@ export function useHeadphones(t: Translations, autoConnect: boolean) {
     pushLog(error);
   }
   function onEvent(event: BridgeEvent) {
+    // The headphones push the new ANC mode when a gesture changes it: show it
+    // immediately; the debounced state read (the raw notification event)
+    // confirms the full state shortly after.
+    if (event.event === "device-mode" && typeof event.mode === "string") {
+      const mapped = event.mode === "anti_wind" ? "custom" : event.mode;
+      if (["adaptive", "custom", "off", "comfort"].includes(mapped)) {
+        setMode(mapped as AmbientMode | "comfort");
+      }
+      return;
+    }
+    // Device-side changes (ANC button, wear detection) arrive as GAIA
+    // notifications: refresh the state shortly after instead of waiting for
+    // the poll cycle. The background guard in readState skips collisions.
+    if (event.event === "notification") {
+      window.clearTimeout(notificationTimer.current);
+      notificationTimer.current = window.setTimeout(() => {
+        void actions.current?.readState(true);
+      }, 300);
+      return;
+    }
+    // The bridge gave up restoring a self-dropped session.
+    if (event.event === "unreachable") {
+      if (manuallyStopped.current || suspended.current) return;
+      reset();
+      setStatus("error");
+      setStatusText(t.unreachable);
+      pushLog(t.unreachable);
+      return;
+    }
     if (event.event !== "stopped") return;
+    window.clearTimeout(notificationTimer.current);
     reset();
     setStatus(event.cancelled ? "idle" : "error");
     setStatusText(event.cancelled ? "" : event.error || "bridge unavailable");

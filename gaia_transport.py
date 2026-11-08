@@ -13,6 +13,14 @@ import threading
 import time
 import uuid
 
+try:
+    # Диагностика транспорта содержит кириллицу: консоль Windows может быть
+    # cp1252 — перекодируем с заменой, чтобы print не рвал выполнение.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 GAIA3_SPP_UUID = "a2129ff3-081b-4c45-8afe-469d9c4842ec"
 
 
@@ -64,6 +72,11 @@ def take_spp_frame(buffer: bytearray):
             else:
                 del buffer[:marker]
             continue
+        if buffer[2] != 0:
+            # GAIA3 frames always carry version byte 00; treat this header as
+            # noise. Drop one byte so the search can reach the next marker.
+            del buffer[:1]
+            continue
         total = 8 + buffer[3]
         if len(buffer) < total:
             return None
@@ -90,12 +103,21 @@ except ImportError:
 
 
 class WinSppTransport(BaseSppTransport):
+    # Unsolicited frames must never grow the queue without bound while the
+    # consumer is busy: drop the oldest chunk and let the frame parser resync.
+    RX_QUEUE_LIMIT = 64
+    # A wedged socket (typical after system sleep) delivers neither bytes nor
+    # an error; force the channel dead so recovery can rebuild it. The liveness
+    # watchdog pings after ~25 s of silence, so this bound is never reached on
+    # a healthy link.
+    RX_LOAD_TIMEOUT = 60.0
+
     def __init__(self, bt_addr: str):
         super().__init__(bt_addr)
         self.sock = None
         self.reader = None
         self.writer = None
-        self._rx_queue = asyncio.Queue()
+        self._rx_queue = asyncio.Queue(maxsize=self.RX_QUEUE_LIMIT)
         self._rx_task = None
         self._rx_buffer = bytearray()
         self._closed = False
@@ -116,11 +138,26 @@ class WinSppTransport(BaseSppTransport):
             raise RuntimeError("RFCOMM-сервис GAIA3 не найден на устройстве.")
         print(f"RFCOMM-сервисов GAIA3: {len(services)}")
 
-        svc = services[0]
-        host = HostName(svc.connection_host_name.raw_name)
-
-        self.sock = StreamSocket()
-        await self.sock.connect_async(host, str(svc.connection_service_name))
+        # The device may advertise several GAIA3 endpoints; try each before
+        # giving up so a busy or half-closed one does not block the session.
+        last_error = None
+        for svc in services:
+            host = HostName(svc.connection_host_name.raw_name)
+            sock = StreamSocket()
+            try:
+                await sock.connect_async(host, str(svc.connection_service_name))
+                self.sock = sock
+                last_error = None
+                break
+            except Exception as error:
+                last_error = error
+                print(f"[win] SPP connect failed on {svc.connection_service_name}: {error!r}")
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+        if self.sock is None:
+            raise RuntimeError(f"Не удалось открыть SPP-соединение: {last_error}")
         print("SPP-соединение установлено.")
 
         self.reader = DataReader(self.sock.input_stream)
@@ -143,9 +180,14 @@ class WinSppTransport(BaseSppTransport):
 
                 fut = asyncio.ensure_future(waiter())
                 try:
-                    await asyncio.wait_for(done.wait(), None)
+                    await asyncio.wait_for(done.wait(), self.RX_LOAD_TIMEOUT)
                     if fut.exception() is not None:
                         raise fut.exception()
+                except asyncio.TimeoutError:
+                    # The socket is wedged: no bytes and no error arrived.
+                    print("[win] SPP receive timed out", file=sys.stderr)
+                    fut.cancel()
+                    break
                 except asyncio.CancelledError:
                     fut.cancel()
                     raise
@@ -157,7 +199,14 @@ class WinSppTransport(BaseSppTransport):
                 if n == 0:
                     break
                 data = bytes(self.reader.read_buffer(n))
-                await self._rx_queue.put(data)
+                try:
+                    self._rx_queue.put_nowait(data)
+                except asyncio.QueueFull:
+                    try:
+                        self._rx_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                    self._rx_queue.put_nowait(data)
         finally:
             if not self._closed:
                 print("[win] SPP-канал закрыт")
@@ -208,6 +257,13 @@ class WinSppTransport(BaseSppTransport):
         try:
             if self._rx_task:
                 self._rx_task.cancel()
+        except Exception:
+            pass
+        try:
+            if self.reader:
+                # Detach the stream so closing the reader does not fault the
+                # socket; a second detach raises and is ignored.
+                self.reader.detach_stream()
         except Exception:
             pass
         try:

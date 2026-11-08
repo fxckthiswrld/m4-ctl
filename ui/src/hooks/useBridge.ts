@@ -31,6 +31,9 @@ export function useBridge(onLog: (text: string) => void, onEvent: (event: Bridge
       if (event.event === "ready") setReady(true);
       if (event.event === "starting") setReady(false);
       if (event.event === "reconnecting") setRecovering(true);
+      // The bridge restores a self-dropped session on its own; these events
+      // mark the end of that recovery either way.
+      if (event.event === "reconnected" || event.event === "unreachable") setRecovering(false);
       if (event.event === "operation-complete") setRecovering(false);
       if (event.event === "stopped") {
         setReady(false);

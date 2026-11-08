@@ -44,9 +44,23 @@ export type BridgeReply<T = unknown> = { id?: string | number } & (
   | { ok: false; error?: string; cancelled?: boolean }
 );
 export interface BridgeEvent {
-  event: "starting" | "ready" | "stopped" | "reconnecting" | "operation-complete";
+  event:
+    | "starting"
+    | "ready"
+    | "stopped"
+    | "reconnecting"
+    | "reconnected"
+    | "connection-lost"
+    | "unreachable"
+    | "notification"
+    | "device-mode"
+    | "operation-complete";
   error?: string;
   cancelled?: boolean;
+  background?: boolean;
+  id?: string;
+  payload?: string;
+  mode?: string;
 }
 export interface DesktopState {
   language: "en" | "ru";
