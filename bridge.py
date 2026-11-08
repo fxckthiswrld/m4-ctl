@@ -11,6 +11,7 @@
 """
 
 import asyncio
+import collections
 import json
 import logging
 import os
@@ -186,6 +187,9 @@ class Bridge:
         # Every frame received (responses and notifications alike) proves the
         # channel is alive; the watchdog uses the counter as liveness evidence.
         self._rx_frames = 0
+        # Ответы, пришедшие раньше регистрации своей команды (pump разбирает
+        # burst целиком): отдаются команде при регистрации, TTL = 1 таймаут.
+        self._replay = collections.deque(maxlen=8)
         self.on_event = on_event or (lambda event: None)
 
     # ---------- receive pump ----------
@@ -226,6 +230,10 @@ class Bridge:
                             # Verified on hardware: the device pushes the new
                             # ANC mode byte when a gesture changes it.
                             self.on_event({"event": "device-mode", "mode": ANC_MODES[parsed["payload"][0]].lower()})
+                    elif parsed["cmd"] & 0x0100 or parsed["cmd"] & 0x0180:
+                        # A response for a command that has not registered yet
+                        # (the pump consumed a whole burst): keep it briefly.
+                        self._remember(frame, parsed)
         except asyncio.CancelledError:
             raise
         except Exception as error:
@@ -264,6 +272,34 @@ class Bridge:
             if not fut.done():
                 fut.set_exception(error)
         self._pending.clear()
+
+    def _remember(self, frame: bytes, parsed):
+        """Запоминает ответ, пришедший раньше регистрации своей команды."""
+        self._replay.append((asyncio.get_running_loop().time(), frame, parsed))
+
+    def _replay_match(self, command: int, fut) -> bool:
+        """Отдаёт команде ответ из реплей-буфера (burst пришёл раньше регистрации)."""
+        loop = asyncio.get_running_loop()
+        candidates = {command | 0x0100, command | 0x0180}
+        if command in LEGACY_ERROR_COMMANDS:
+            candidates.add(command - 0x80)
+        for entry in list(self._replay):
+            stamp, frame, parsed = entry
+            if loop.time() - stamp > RESPONSE_TIMEOUT:
+                try:
+                    self._replay.remove(entry)
+                except ValueError:
+                    pass
+                continue
+            if parsed["cmd"] in candidates:
+                try:
+                    self._replay.remove(entry)
+                except ValueError:
+                    pass
+                if not fut.done():
+                    fut.set_result(frame)
+                return True
+        return False
 
     @staticmethod
     def _drain(fut):
@@ -464,6 +500,7 @@ class Bridge:
         command = int.from_bytes(frame[2:4], "big")
         fut = asyncio.get_running_loop().create_future()
         self._pending[command] = fut
+        self._replay_match(command, fut)
         try:
             try:
                 await self.tr.send(frame)

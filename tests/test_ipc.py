@@ -188,6 +188,12 @@ class BridgeJsonlTests(unittest.TestCase):
                 if process.poll() is None:
                     process.kill()
                     process.wait(timeout=5)
+                for stream in (process.stdin, process.stdout, process.stderr):
+                    try:
+                        if stream is not None:
+                            stream.close()
+                    except Exception:
+                        pass
             self.assertTrue(os.path.exists(log_path))
             with open(log_path, encoding="utf-8") as handle:
                 self.assertIn("session closed by request", handle.read())
@@ -421,6 +427,19 @@ class BridgeTransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(transport.sent, [gaia_frame(0x1A05)])
         self.assertFalse(transport.closed)
 
+    async def test_burst_responses_survive_the_registration_gap(self):
+        # Regression (CI, Python 3.14 eager tasks): the pump may consume a whole
+        # response burst before the next command registers its future. Replies
+        # must be replayed from the buffer, never dropped.
+        bridge = Bridge()
+        bridge.tr = FakeTransport(responses=[
+            spp_frame(gaia_frame(0x0703, b"\x52")),
+            spp_frame(gaia_frame(0x1302, b"\x03\x12\x00")),
+        ])
+        await asyncio.sleep(0.1)  # let the pump chew through the burst up front
+        result = await bridge.cmd_info()
+        self.assertEqual(result, {"battery": [82], "firmware": "3.18.0", "errors": {}})
+
     async def test_info_timeout_does_not_reconnect_for_firmware(self):
         bridge = Bridge()
         bridge.addr = "AA:BB:CC:DD:EE:FF"
@@ -514,9 +533,10 @@ class BridgeTransportTests(unittest.IsolatedAsyncioTestCase):
         with patch("bridge.create_transport", side_effect=[replacement]), \
              patch("bridge.WATCHDOG_TICK", 0.01), \
              patch("bridge.RESPONSE_TIMEOUT", 0.05), \
-             patch("bridge.PING_RESPONSE_TIMEOUT", 0.05):
+             patch("bridge.PING_RESPONSE_TIMEOUT", 0.05), \
+             patch("bridge.LIVENESS_RETRY_DELAY", 0.02):
             bridge._ensure_watchdog()
-            for _ in range(200):
+            for _ in range(400):
                 await asyncio.sleep(0.02)
                 if bridge.tr is replacement:
                     break
