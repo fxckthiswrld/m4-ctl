@@ -138,10 +138,13 @@ test("renderer exit during application shutdown does not restart it", async () =
   assert.equal(h.errors.length, 0);
 });
 
-test("packaged apps select the matching native bridge with onedir and legacy fallbacks", async () => {
+test("packaged apps select the matching bridge layout with fallbacks", async () => {
+  // Native per-arch layout is kept for legacy universal-style bundles; the
+  // standard builds ship the onedir folder, with the onefile as last resort
+  // for older installs.
   for (const arch of ["arm64", "x64"]) {
-    const universal = await harness({ packaged: true, platform: "darwin", arch, nativeBridge: true });
-    assert.equal(universal.children[0].executable, path.join("/app/resources", "bridge", arch, "m4-bridge"));
+    const native = await harness({ packaged: true, platform: "darwin", arch, nativeBridge: true });
+    assert.equal(native.children[0].executable, path.join("/app/resources", "bridge", arch, "m4-bridge"));
   }
   const windowsOnedir = await harness({ packaged: true, onedirBridge: true });
   assert.equal(windowsOnedir.children[0].executable, path.join("/app/resources", "bridge", "win", "m4-bridge", "m4-bridge.exe"));
@@ -151,18 +154,6 @@ test("packaged apps select the matching native bridge with onedir and legacy fal
   assert.equal(windows.children[0].executable, path.join("/app/resources", "bridge", "m4-bridge.exe"));
   const macLegacy = await harness({ packaged: true, platform: "darwin", arch: "arm64" });
   assert.equal(macLegacy.children[0].executable, path.join("/app/resources", "bridge", "m4-bridge"));
-});
-
-test("universal packaging preserves both PyInstaller trees without merging them", () => {
-  const { mac } = require("../electron-builder.universal.cjs");
-  const { minimatch } = require("minimatch");
-  assert.equal(mac.extraResources.length, 2);
-  for (const arch of ["arm64", "x64"]) {
-    assert.ok(mac.extraResources.some((resource) => resource.from === `../build/bridge/${arch}/` && resource.to === `bridge/${arch}/`));
-    // Launchers and arch-specific extension modules must be per-slice.
-    assert.ok(minimatch(`Contents/Resources/bridge/${arch}/m4-bridge`, mac.x64ArchFiles));
-    assert.ok(minimatch(`Contents/Resources/bridge/${arch}/_internal/AppKit/_AppKit.cpython-315-darwin.so`, mac.x64ArchFiles));
-  }
 });
 
 test("ready is available to renderers that subscribe after startup", async () => {

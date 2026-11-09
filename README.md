@@ -90,8 +90,7 @@ Artifacts: `ui/release/*.exe`.
 
 GitHub Actions runs the bridge tests and UI checks for every push and pull
 request. Pushing a tag matching `v*` additionally builds native Windows and
-macOS artifacts (`arm64`, `x64`, and universal) and publishes them to a GitHub
-Release.
+macOS artifacts (`arm64` and `x64`) and publishes them to a GitHub Release.
 
 ### macOS
 
@@ -109,7 +108,7 @@ Artifacts: `ui/release/*.dmg` and `ui/release/*.zip`.
 Build on Apple Silicon for Apple Silicon, and on Intel for Intel. macOS may show
 a warning on first launch until the application is signed and notarized by Apple.
 
-The universal CI build includes separate native Python bridges for arm64 and x64
+The macOS CI build ships separate native Python bridges for arm64 and x64
 and selects one at runtime. PyInstaller executables are kept separate to preserve
 their embedded archives. Release builds check bridge startup and JSONL commands
 without requiring connected headphones.
