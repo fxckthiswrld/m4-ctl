@@ -480,7 +480,11 @@ class MacSppTransport(BaseSppTransport):
         try:
             await asyncio.wait_for(open_done.wait(), MAC_OPEN_TIMEOUT)
         except asyncio.TimeoutError:
-            print(f"[mac] openComplete timed out; isOpen={channel.isOpen()}")
+            # openComplete may lag behind the actual channel state; if the
+            # channel already reports open, keep it instead of retrying.
+            if channel.isOpen():
+                print("[mac] openComplete timed out but channel is open; continuing")
+                return channel
             raise TimeoutError("RFCOMM openComplete timed out") from None
         if self._closed:
             raise OSError("RFCOMM closed while opening")

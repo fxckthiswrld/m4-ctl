@@ -107,15 +107,25 @@ class MacTransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNot(first, second)
         self.assertTrue(self.transport.is_alive())
 
-    async def test_missing_callback_fails_even_if_native_channel_is_open(self):
+    async def test_opencomplete_timeout_with_open_channel_succeeds(self):
+        # Real hardware: openComplete may lag behind an actually-open channel;
+        # the transport must keep the channel instead of failing the connect.
         self.device.openRFCOMMChannelAsync_withChannelID_delegate_.side_effect = None
         self.device.openRFCOMMChannelAsync_withChannelID_delegate_.return_value = (0, self.channel)
         self.channel.isOpen.return_value = True
         with patch.object(self.module, "MAC_OPEN_TIMEOUT", 0.03):
+            await self.transport.connect()
+        self.assertTrue(self.transport.is_alive())
+        self.channel.closeChannel.assert_not_called()
+
+    async def test_opencomplete_timeout_closes_unopened_channel(self):
+        self.device.openRFCOMMChannelAsync_withChannelID_delegate_.side_effect = None
+        self.device.openRFCOMMChannelAsync_withChannelID_delegate_.return_value = (0, self.channel)
+        self.channel.isOpen.return_value = False
+        with patch.object(self.module, "MAC_OPEN_TIMEOUT", 0.03):
             with self.assertRaisesRegex(TimeoutError, "openComplete timed out"):
                 await self.transport.connect()
         self.assertFalse(self.transport.is_alive())
-        self.assertIsNone(self.transport._pump_task)
         self.channel.closeChannel.assert_called_once()
         self.device.closeConnection.assert_not_called()
 

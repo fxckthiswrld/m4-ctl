@@ -222,7 +222,13 @@ function createWindow() {
   });
   mainWindow.setMenu(null);
   mainWindow.on("close", (event) => {
-    if (!quitting && desktop?.shouldHide()) { event.preventDefault(); mainWindow.hide(); }
+    // macOS convention: closing the window hides it — the app, renderer and
+    // connection stay alive so the tray keeps working and reopening is
+    // instant. Windows keeps the close-to-tray preference semantics.
+    if (!quitting && (process.platform === "darwin" || desktop?.shouldHide())) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
   });
 
   const distIndex = path.join(__dirname, "..", "dist", "index.html");
