@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-async function harness({ packaged = false, platform = "win32", arch = "x64", nativeBridge = false, ownsLock = true } = {}) {
+async function harness({ packaged = false, platform = "win32", arch = "x64", nativeBridge = false, onedirBridge = false, ownsLock = true } = {}) {
   const handlers = new Map();
   const timers = new Map();
   const messages = [];
@@ -62,7 +62,15 @@ async function harness({ packaged = false, platform = "win32", arch = "x64", nat
     clearTimeout: (id) => timers.delete(id),
     require: (name) => {
       if (name === "electron") return electron;
-      if (name === "fs") return { ...fs, existsSync: (filename) => nativeBridge && filename === path.join("/app/resources", "bridge", arch, "m4-bridge") };
+      if (name === "fs") return {
+        ...fs,
+        existsSync: (filename) => {
+          if (nativeBridge && filename === path.join("/app/resources", "bridge", arch, "m4-bridge")) return true;
+          if (onedirBridge && platform === "win32" && filename === path.join("/app/resources", "bridge", "win", "m4-bridge", "m4-bridge.exe")) return true;
+          if (onedirBridge && platform === "darwin" && filename === path.join("/app/resources", "bridge", "mac", "m4-bridge", "m4-bridge")) return true;
+          return false;
+        },
+      };
       if (name !== "child_process") return require(name);
       return { spawn: (executable) => {
         const child = new EventEmitter();
@@ -130,15 +138,19 @@ test("renderer exit during application shutdown does not restart it", async () =
   assert.equal(h.errors.length, 0);
 });
 
-test("packaged apps select the matching native bridge with legacy layout fallback", async () => {
+test("packaged apps select the matching native bridge with onedir and legacy fallbacks", async () => {
   for (const arch of ["arm64", "x64"]) {
     const universal = await harness({ packaged: true, platform: "darwin", arch, nativeBridge: true });
     assert.equal(universal.children[0].executable, path.join("/app/resources", "bridge", arch, "m4-bridge"));
-    const native = await harness({ packaged: true, platform: "darwin", arch });
-    assert.equal(native.children[0].executable, path.join("/app/resources", "bridge", "m4-bridge"));
   }
+  const windowsOnedir = await harness({ packaged: true, onedirBridge: true });
+  assert.equal(windowsOnedir.children[0].executable, path.join("/app/resources", "bridge", "win", "m4-bridge", "m4-bridge.exe"));
+  const macOnedir = await harness({ packaged: true, platform: "darwin", arch: "arm64", onedirBridge: true });
+  assert.equal(macOnedir.children[0].executable, path.join("/app/resources", "bridge", "mac", "m4-bridge", "m4-bridge"));
   const windows = await harness({ packaged: true });
   assert.equal(windows.children[0].executable, path.join("/app/resources", "bridge", "m4-bridge.exe"));
+  const macLegacy = await harness({ packaged: true, platform: "darwin", arch: "arm64" });
+  assert.equal(macLegacy.children[0].executable, path.join("/app/resources", "bridge", "m4-bridge"));
 });
 
 test("universal packaging preserves both PyInstaller binaries without merging them", () => {
@@ -146,7 +158,7 @@ test("universal packaging preserves both PyInstaller binaries without merging th
   const { minimatch } = require("minimatch");
   assert.equal(mac.extraResources.length, 2);
   for (const arch of ["arm64", "x64"]) {
-    assert.ok(mac.extraResources.some((resource) => resource.from === `../build/bridge/${arch}/m4-bridge` && resource.to === `bridge/${arch}/m4-bridge`));
+    assert.ok(mac.extraResources.some((resource) => resource.from === `../build/bridge/${arch}/` && resource.to === `bridge/${arch}/`));
     assert.ok(minimatch(`Contents/Resources/bridge/${arch}/m4-bridge`, mac.x64ArchFiles));
   }
 });

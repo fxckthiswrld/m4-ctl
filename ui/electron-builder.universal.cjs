@@ -6,8 +6,8 @@ module.exports = {
   mac: {
     ...build.mac,
     extraResources: ["arm64", "x64"].map((arch) => ({
-      from: `../build/bridge/${arch}/m4-bridge`,
-      to: `bridge/${arch}/m4-bridge`,
+      from: `../build/bridge/${arch}/`,
+      to: `bridge/${arch}/`,
     })),
     // Both app slices carry identical copies. Skip lipo to preserve the
     // appended Python archives in these PyInstaller onefile executables.

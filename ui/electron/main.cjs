@@ -83,12 +83,20 @@ function startBridge() {
 
   if (app.isPackaged) {
     const bridgeName = process.platform === "win32" ? "m4-bridge.exe" : "m4-bridge";
-    const nativeExecutable = path.join(process.resourcesPath, "bridge", process.arch, bridgeName);
-    const executable = process.platform === "darwin" && fs.existsSync(nativeExecutable) ? nativeExecutable : path.join(
-      process.resourcesPath,
-      "bridge",
-      bridgeName
-    );
+    // PyInstaller onedir: the launcher lives inside its distribution folder
+    // with the Python runtime beside it — this keeps bridge startup fast.
+    const candidates = [];
+    if (process.platform === "darwin") {
+      // Universal mac: per-arch single-binary layout (binary at dir root).
+      candidates.push(path.join(process.resourcesPath, "bridge", process.arch, bridgeName));
+      // Single-arch mac package: onedir folder.
+      candidates.push(path.join(process.resourcesPath, "bridge", "mac", "m4-bridge", bridgeName));
+    } else {
+      candidates.push(path.join(process.resourcesPath, "bridge", "win", "m4-bridge", bridgeName));
+    }
+    // Legacy onefile layout.
+    candidates.push(path.join(process.resourcesPath, "bridge", bridgeName));
+    const executable = candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[candidates.length - 1];
     const options = {
       cwd: process.resourcesPath,
       shell: false,
@@ -265,8 +273,12 @@ function initialize() {
   });
 
   app.on("window-all-closed", () => {
-    stopBridge();
-    if (process.platform !== "darwin") app.quit();
+    if (process.platform !== "darwin") {
+      stopBridge();
+      app.quit();
+    }
+    // macOS convention: closing the window keeps the app and its connection
+    // alive in the tray; the dock icon or tray menu reopens the window.
   });
 
   app.on("before-quit", () => {

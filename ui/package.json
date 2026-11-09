@@ -12,8 +12,8 @@
     "test:desktop": "node --test tests/bridge-lifecycle.cjs tests/diagnostics.cjs",
     "typecheck": "tsc --noEmit",
     "start": "electron .",
-    "bridge:build:win": "cd .. && uv run pyinstaller --noconfirm --clean --onefile --name m4-bridge --collect-submodules winrt --distpath build\\bridge\\win --workpath build\\pyinstaller\\win --specpath build bridge.py",
-    "bridge:build:mac": "cd .. && uv run pyinstaller --noconfirm --clean --onefile --name m4-bridge --distpath build/bridge/mac --workpath build/pyinstaller/mac --specpath build bridge.py && chmod +x build/bridge/mac/m4-bridge",
+    "bridge:build:win": "cd .. && uv run pyinstaller --noconfirm --clean --onedir --name m4-bridge --collect-submodules winrt --distpath build\\bridge\\win --workpath build\\pyinstaller\\win --specpath build bridge.py",
+    "bridge:build:mac": "cd .. && uv run pyinstaller --noconfirm --clean --onedir --name m4-bridge --distpath build/bridge/mac --workpath build/pyinstaller/mac --specpath build bridge.py && chmod +x build/bridge/mac/m4-bridge/m4-bridge",
     "bridge:build": "npm run bridge:build:win",
     "dist:win": "npm run bridge:build:win && vite build && electron-builder --win",
     "dist:mac": "npm run bridge:build:mac && vite build && electron-builder --mac",
@@ -61,8 +61,8 @@
       ],
       "extraResources": [
         {
-          "from": "../build/bridge/win/m4-bridge.exe",
-          "to": "bridge/m4-bridge.exe"
+          "from": "../build/bridge/win/m4-bridge/",
+          "to": "bridge/win/m4-bridge/"
         }
       ]
     },
@@ -74,11 +74,10 @@
       ],
       "extraResources": [
         {
-          "from": "../build/bridge/mac/m4-bridge",
-          "to": "bridge/m4-bridge"
+          "from": "../build/bridge/mac/m4-bridge/",
+          "to": "bridge/mac/m4-bridge/"
         }
-      ],
-      "x64ArchFiles": "Contents/Resources/bridge/m4-bridge"
+      ]
     },
     "nsis": {
       "oneClick": false,

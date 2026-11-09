@@ -109,7 +109,7 @@ jobs:
         run: npm run dist:win
 
       - name: Smoke-test packaged bridge
-        run: uv run python tests/smoke_bridge.py build/bridge/win/m4-bridge.exe
+        run: uv run python tests/smoke_bridge.py build/bridge/win/m4-bridge/m4-bridge.exe
 
       - name: Smoke-test packaged desktop resources
         working-directory: ui
@@ -166,7 +166,7 @@ jobs:
         run: npm run dist:mac -- --${{ matrix.arch }}
 
       - name: Smoke-test packaged bridge
-        run: uv run python tests/smoke_bridge.py build/bridge/mac/m4-bridge
+        run: uv run python tests/smoke_bridge.py build/bridge/mac/m4-bridge/m4-bridge
 
       - name: Upload bridge binary
         uses: actions/upload-artifact@v4
