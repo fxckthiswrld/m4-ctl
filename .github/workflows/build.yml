@@ -62,7 +62,8 @@ jobs:
 
   test-macos:
     name: macOS Bluetooth event loop
-    runs-on: macos-15
+    # Intel runners are plentiful; arm64 runners are capacity-constrained.
+    runs-on: macos-15-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -189,7 +190,7 @@ jobs:
   build-macos-universal:
     name: macOS universal app
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: macos-15
+    runs-on: macos-15-intel
     needs: [build-macos]
     steps:
       - name: Checkout
