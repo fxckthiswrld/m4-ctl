@@ -153,13 +153,15 @@ test("packaged apps select the matching native bridge with onedir and legacy fal
   assert.equal(macLegacy.children[0].executable, path.join("/app/resources", "bridge", "m4-bridge"));
 });
 
-test("universal packaging preserves both PyInstaller binaries without merging them", () => {
+test("universal packaging preserves both PyInstaller trees without merging them", () => {
   const { mac } = require("../electron-builder.universal.cjs");
   const { minimatch } = require("minimatch");
   assert.equal(mac.extraResources.length, 2);
   for (const arch of ["arm64", "x64"]) {
     assert.ok(mac.extraResources.some((resource) => resource.from === `../build/bridge/${arch}/` && resource.to === `bridge/${arch}/`));
+    // Launchers and arch-specific extension modules must be per-slice.
     assert.ok(minimatch(`Contents/Resources/bridge/${arch}/m4-bridge`, mac.x64ArchFiles));
+    assert.ok(minimatch(`Contents/Resources/bridge/${arch}/_internal/AppKit/_AppKit.cpython-315-darwin.so`, mac.x64ArchFiles));
   }
 });
 

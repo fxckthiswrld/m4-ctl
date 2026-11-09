@@ -9,8 +9,8 @@ module.exports = {
       from: `../build/bridge/${arch}/`,
       to: `bridge/${arch}/`,
     })),
-    // Both app slices carry identical copies. Skip lipo to preserve the
-    // appended Python archives in these PyInstaller onefile executables.
-    x64ArchFiles: "Contents/Resources/bridge/**/m4-bridge",
+    // The whole onedir tree is arch-specific (launcher, dylibs, _internal
+    // extension modules): each app slice keeps its own copy of the bridge.
+    x64ArchFiles: "Contents/Resources/bridge/**",
   },
 };
