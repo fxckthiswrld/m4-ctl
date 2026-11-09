@@ -72,6 +72,11 @@
         "dmg",
         "zip"
       ],
+      "extendInfo": {
+        "NSBluetoothAlwaysUsageDescription": "Momentum 4 Control connects to your Sennheiser MOMENTUM 4 headphones to configure sound settings.",
+        "NSBluetoothPeripheralUsageDescription": "Momentum 4 Control connects to your Sennheiser MOMENTUM 4 headphones to configure sound settings."
+      },
+      "afterPack": "electron/afterpack.cjs",
       "extraResources": [
         {
           "from": "../build/bridge/mac/m4-bridge/",
