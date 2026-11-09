@@ -134,7 +134,8 @@ jobs:
       matrix:
         include:
           - arch: arm64
-            runner: macos-15
+            # Blacksmith arm64 mac avoids GitHub's capacity-queue problem.
+            runner: ${{ vars.USE_BLACKSMITH == 'true' && 'macos-15-arm64' || 'macos-15' }}
           - arch: x64
             runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
