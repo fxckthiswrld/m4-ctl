@@ -6,6 +6,9 @@
 // lists, empty SDP results). Signing with a persistent self-signed code
 // signing certificate gives the app a stable identity: the grant is stored
 // once and survives relaunches and reinstalls signed with the same cert.
+//
+// Note: /usr/bin/openssl on macOS is LibreSSL and does not support -addext,
+// so the extensions are passed via a config file.
 const { execSync } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -13,28 +16,36 @@ const os = require("node:os");
 
 const CERT_NAME = "Momentum 4 Control Local";
 
-function hasSigningIdentity() {
+function certExists() {
   try {
-    const list = execSync("security find-identity -v -p codesigning", {
-      encoding: "utf8",
-    });
-    return list.includes(CERT_NAME);
+    execSync(`security find-certificate -c "${CERT_NAME}"`, { stdio: "ignore" });
+    return true;
   } catch {
     return false;
   }
 }
 
-function ensureSigningIdentity() {
-  if (hasSigningIdentity()) return CERT_NAME;
-  console.log(`Creating local signing identity "${CERT_NAME}"`);
+function ensureSigningCertificate() {
+  if (certExists()) return;
+  console.log(`Creating local code signing certificate "${CERT_NAME}"`);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "m4sign-"));
   const key = path.join(dir, "key.pem");
   const cert = path.join(dir, "cert.pem");
+  const cfg = path.join(dir, "cnf");
+  fs.writeFileSync(
+    cfg,
+    [
+      "[req]",
+      "distinguished_name=dn",
+      "x509_extensions=v3req",
+      "[v3req]",
+      "keyUsage=digitalSignature",
+      "extendedKeyUsage=codeSigning",
+    ].join("\n")
+  );
   execSync(
     `openssl req -x509 -newkey rsa:2048 -keyout "${key}" -out "${cert}" ` +
-      `-days 3650 -nodes -subj "/CN=${CERT_NAME}" ` +
-      `-addext "keyUsage=digitalSignature" ` +
-      `-addext "extendedKeyUsage=codeSigning"`,
+      `-days 3650 -nodes -subj "/CN=${CERT_NAME}" -config "${cfg}"`,
     { stdio: "ignore" }
   );
   // -T pre-authorizes codesign to use the key without a GUI prompt.
@@ -48,23 +59,22 @@ function ensureSigningIdentity() {
     console.log("add-trusted-cert skipped:", String(error).slice(0, 120));
   }
   fs.rmSync(dir, { recursive: true, force: true });
-  return CERT_NAME;
 }
 
 exports.default = async function afterPack(context) {
   if (context.electronPlatformName !== "darwin") return;
-  let identity = "-";
   try {
-    identity = ensureSigningIdentity();
+    ensureSigningCertificate();
   } catch (error) {
-    console.log("Signing identity unavailable, using ad-hoc:", String(error).slice(0, 120));
+    console.log("Signing certificate unavailable, using ad-hoc:", String(error).slice(0, 160));
+    return;
   }
   const appPath = path.join(
     context.appOutDir,
     `${context.packager.appInfo.productFilename}.app`
   );
-  console.log(`Codesign (${identity}): ${appPath}`);
-  execSync(`codesign --force --deep --sign "${identity}" "${appPath}"`, {
+  console.log(`Codesign (${CERT_NAME}): ${appPath}`);
+  execSync(`codesign --force --deep --sign "${CERT_NAME}" "${appPath}"`, {
     stdio: "inherit",
   });
   execSync(`codesign --verify --deep --strict "${appPath}"`, { stdio: "inherit" });
