@@ -217,6 +217,9 @@ function createWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
+      // The hidden window keeps driving the bridge and the tray while the
+      // window is closed: timers must not be throttled in the background.
+      backgroundThrottling: false,
       backgroundThrottling: false,
     },
   });
