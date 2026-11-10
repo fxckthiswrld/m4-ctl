@@ -46,7 +46,7 @@
   },
   "build": {
     "appId": "com.munwig.m4control",
-    "afterPack": "electron/afterpack.cjs",
+    "afterSign": "electron/afterpack.cjs",
     "files": [
       "dist/**/*",
       "electron/**/*"
