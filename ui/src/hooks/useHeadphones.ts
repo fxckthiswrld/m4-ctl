@@ -202,8 +202,16 @@ export function useHeadphones(t: Translations, autoConnect: boolean) {
     end(generation);
   }
 
-  const setAmbientMode = (value: AmbientMode) => change(value === "custom" ? { cmd: "custom" } : value === "off" ? { cmd: "anc", state: "off" } : { cmd: "mode", mode: "adaptive" }, () => setMode(value));
-  const setAntiwindLevel = (value: string) => change({ cmd: "antiwind", level: Number(value) }, () => setAntiwind(value));
+  const setAmbientMode = async (value: AmbientMode) => {
+    // No-op: the target mode is already active (device state is tracked via
+    // notifications and polls, so the UI mode matches the headphones).
+    if (mode === value) return;
+    await change(value === "custom" ? { cmd: "custom" } : value === "off" ? { cmd: "anc", state: "off" } : { cmd: "mode", mode: "adaptive" }, () => setMode(value));
+  };
+  const setAntiwindLevel = async (value: string) => {
+    if (antiwind === value) return;
+    await change({ cmd: "antiwind", level: Number(value) }, () => setAntiwind(value));
+  };
   const commitTransparencyLevel = (value: number) => change({ cmd: "transparency", level: value }, () => setTransparency(value));
   const applyProfile = (profile: ProfileSettings) => change({ cmd: "profile", mode: profile.mode, antiwind: profile.antiwind, transparency: profile.transparency });
   const onInteractionChange = (value: boolean) => { adjusting.current = value; if (value) revision.current++; };

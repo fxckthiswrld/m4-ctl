@@ -20,7 +20,19 @@ function createDesktop({ app, Menu, Tray, nativeImage, nativeTheme, powerMonitor
       { label: t.connect, enabled: state.canConnect && !state.connected && !state.busy, click: () => action({ action: "connect" }) },
       { label: state.busy ? t.cancel : t.disconnect, enabled: state.connected || state.busy, click: () => action({ action: "disconnect" }) },
       { type: "separator" },
-      ...["adaptive", "custom", "off"].map((mode) => ({ label: t[mode], type: "checkbox", checked: state.mode === mode, enabled: available, click: () => action({ action: "mode", mode }) })),
+      ...["adaptive", "custom", "off"].map((mode) => ({
+        label: t[mode],
+        type: "checkbox",
+        checked: state.mode === mode,
+        enabled: available,
+        click: () => {
+          // Оптимистично: галочка переставляется сразу; точное состояние
+          // придёт синхронизацией рендерера после применения.
+          state.mode = mode;
+          updateMenu();
+          action({ action: "mode", mode });
+        },
+      })),
       { label: t.profiles, enabled: available && state.profiles.length > 0,
         submenu: state.profiles.map((p) => ({ label: p.name.replace(/&/g, "&&"), click: () => action({ action: "profile", id: p.id }) })) },
       { type: "separator" },
