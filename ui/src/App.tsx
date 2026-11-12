@@ -90,6 +90,10 @@ export default function App() {
   const [exporting, setExporting] = React.useState(false);
   const reportedKey = deviceState?.anc?.enabled === false ? "off" : deviceState?.mode?.key;
   const reportedModeLabel = reportedKey ? t[reportedKey as AmbientMode | "comfort"] : t.unknown;
+  // The device slider is a transparency level (0 = full ANC, 100 = full
+  // transparency). Show ANC as the complement so the numbers are unambiguous.
+  const transparencyLevel = typeof deviceState?.transparency?.level === "number" ? deviceState.transparency.level : null;
+  const ancPercent = transparencyLevel == null ? null : 100 - transparencyLevel;
   const desktopHandler = React.useRef<(event: DesktopAction) => void>(() => {});
   desktopHandler.current = (event) => {
     let action: Promise<void> | undefined;
@@ -237,10 +241,10 @@ export default function App() {
           </div>
 
           <div className="flex flex-col gap-2 border-t border-white/10 pt-4">
-            <h3 className="mb-1 text-xs font-medium text-muted-foreground">{t.transparency}</h3>
+            <h3 className="mb-1 text-xs font-medium text-muted-foreground">{t.ancSlider}</h3>
             <div className="flex items-center gap-3">
               <Slider
-                aria-label={t.transparency}
+                aria-label={t.ancSlider}
                 value={transparency}
                 min={0}
                 max={100}
@@ -250,8 +254,8 @@ export default function App() {
                 onCommit={commitTransparencyLevel}
                 onInteractionChange={onInteractionChange}
               />
-              <span className="w-10 text-right text-sm font-semibold tabular-nums">
-                {deviceState?.transparency?.level == null && !busy ? "?" : transparency}
+              <span className="w-14 text-right text-sm font-semibold tabular-nums">
+                {transparencyLevel == null && !busy ? "?" : `${100 - transparency}% ANC`}
               </span>
             </div>
             <div className="flex justify-between px-1 text-[11px] font-medium text-muted-foreground">
@@ -260,7 +264,8 @@ export default function App() {
             </div>
             <p className="text-[11px] text-muted-foreground" aria-live="polite">
               {t.currentState}: {reportedModeLabel}
-              {` · ${typeof deviceState?.transparency?.level === "number" ? `${deviceState.transparency.level}%` : t.unknown}`}
+              {` · ANC ${ancPercent == null ? t.unknown : `${ancPercent}%`}`}
+              {` · ${t.transparency} ${transparencyLevel == null ? t.unknown : `${transparencyLevel}%`}`}
               {busy && ` · ${t.busy}`}
             </p>
           </div>

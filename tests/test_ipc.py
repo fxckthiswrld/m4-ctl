@@ -258,9 +258,39 @@ class BridgeTransportTests(unittest.IsolatedAsyncioTestCase):
                 gaia_frame(0x1A04, b"\x01"),
                 gaia_frame(0x1A00, b"\x03\x00"),
                 gaia_frame(0x1A00, b"\x02\x00"),
-                gaia_frame(0x1A02, b"\x00"),
             ],
         )
+
+    async def test_custom_restores_saved_slider_level(self):
+        transport = FakeTransport()
+        bridge = Bridge()
+        bridge.addr = "AA:BB:CC:DD:EE:FF"
+        bridge.tr = transport
+
+        with patch("bridge.asyncio.sleep", new=AsyncMock()):
+            await bridge.cmd_custom(63)
+
+        self.assertEqual(
+            transport.sent,
+            [
+                gaia_frame(0x1804, b"\x00"),
+                gaia_frame(0x1A04, b"\x01"),
+                gaia_frame(0x1A00, b"\x03\x00"),
+                gaia_frame(0x1A00, b"\x02\x00"),
+                gaia_frame(0x1A02, bytes([63])),
+            ],
+        )
+
+    async def test_custom_clamps_slider_level(self):
+        transport = FakeTransport()
+        bridge = Bridge()
+        bridge.addr = "AA:BB:CC:DD:EE:FF"
+        bridge.tr = transport
+
+        with patch("bridge.asyncio.sleep", new=AsyncMock()):
+            await bridge.cmd_custom(150)
+
+        self.assertEqual(transport.sent[-1], gaia_frame(0x1A02, bytes([100])))
 
     async def test_send_error_reconnects_and_retries_once(self):
         first = FakeTransport(fail_send=True)

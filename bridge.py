@@ -581,20 +581,25 @@ class Bridge:
             await self._gaia(gaia_frame(0x1A00, bytes([m, 1])))
         return {"mode": ANC_MODES[m]}
 
-    async def cmd_custom(self, deadline_ms=None):
-        # Кастом-режим M4: прозрачность off -> ANC on -> выход из Adaptive -> слайдер ANC 100
+    async def cmd_custom(self, level=None, deadline_ms=None):
+        # Кастом-режим M4: прозрачность hearing off -> ANC on -> выход из Adaptive
+        # -> Comfort off. Слайдер не сбрасываем: как в официальном приложении,
+        # последняя установка восстанавливается (её передаёт рендерер).
         steps = [
             gaia_frame(0x1804, bytes([0])),
             gaia_frame(0x1A04, bytes([1])),
             gaia_frame(0x1A00, bytes([3, 0])),
             gaia_frame(0x1A00, bytes([2, 0])),
-            gaia_frame(0x1A02, bytes([0])),
         ]
         for i, frame in enumerate(steps):
             await self._gaia(frame)
             if i < len(steps) - 1:
                 await asyncio.sleep(0.4)
                 _check_deadline(deadline_ms)
+        if level is not None:
+            await asyncio.sleep(0.4)
+            _check_deadline(deadline_ms)
+            await self._gaia(gaia_frame(0x1A02, bytes([max(0, min(100, int(level)))])))
         return {"mode": "CUSTOM"}
 
     async def cmd_antiwind(self, level: int):
@@ -761,7 +766,7 @@ async def dispatch(bridge: Bridge, msg: dict, deadline_ms=None):
     if cmd == "mode":
         return await bridge.cmd_mode(msg.get("mode", "adaptive"), deadline_ms)
     if cmd == "custom":
-        return await bridge.cmd_custom(deadline_ms)
+        return await bridge.cmd_custom(msg.get("level"), deadline_ms)
     if cmd == "antiwind":
         return await bridge.cmd_antiwind(msg.get("level", 0))
     if cmd == "transparency":

@@ -21,7 +21,7 @@ export type BridgeCommand =
   | { cmd: "info" }
   | { cmd: "anc"; state: "on" | "off" }
   | { cmd: "mode"; mode: "adaptive" | "comfort" | "anti_wind" | "off" }
-  | { cmd: "custom" }
+  | { cmd: "custom"; level?: number }
   | { cmd: "antiwind"; level: number }
   | { cmd: "transparency"; level: number }
   | ({ cmd: "profile" } & ProfileSettings);

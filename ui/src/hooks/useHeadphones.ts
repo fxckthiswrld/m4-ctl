@@ -21,6 +21,12 @@ export function useHeadphones(t: Translations) {
   const notificationTimer = React.useRef(0);
   const suspended = React.useRef(false);
   const lastAddress = React.useRef(localStorage.getItem("m4-last-connected") || "");
+  // The headphones do not keep the Custom slider across mode switches (the
+  // official app restores it), so the app stores the last confirmed value.
+  const [customLevel, setCustomLevel] = React.useState<number | null>(() => {
+    const saved = Number(localStorage.getItem("m4-custom-level"));
+    return Number.isInteger(saved) && saved >= 0 && saved <= 100 ? saved : null;
+  });
   const retryAttempt = React.useRef(0);
 
   const setStatus = (value: ConnectionStatus) => { statusRef.current = value; updateStatus(value); };
@@ -43,6 +49,16 @@ export function useHeadphones(t: Translations) {
     const wind = state.mode?.antiwind;
     setAntiwind(typeof wind === "number" && [0, 1, 2].includes(wind) ? String(wind) : null);
     setTransparency(state.transparency?.level ?? 0);
+    // Remember the slider as reported while Custom is active: switching modes
+    // back later must restore exactly this value (like the official app).
+    const level = state.transparency?.level;
+    if (state.mode?.key === "custom" && typeof level === "number") {
+      setCustomLevel((previous) => {
+        if (previous === level) return previous;
+        localStorage.setItem("m4-custom-level", String(level));
+        return level;
+      });
+    }
   }
   function failed(error = "device state unavailable") {
     setStatus("error"); setStatusText(error); clearState();
@@ -159,7 +175,12 @@ export function useHeadphones(t: Translations) {
     // No-op: the target mode is already active (device state is tracked via
     // notifications and polls, so the UI mode matches the headphones).
     if (mode === value) return;
-    await change(value === "custom" ? { cmd: "custom" } : value === "off" ? { cmd: "anc", state: "off" } : { cmd: "mode", mode: "adaptive" }, () => setMode(value));
+    if (value === "custom") {
+      // Restore the last Custom slider value (full ANC when never set).
+      await change({ cmd: "custom", level: customLevel ?? 0 }, () => setMode(value));
+      return;
+    }
+    await change(value === "off" ? { cmd: "anc", state: "off" } : { cmd: "mode", mode: "adaptive" }, () => setMode(value));
   };
   const setAntiwindLevel = async (value: string) => {
     if (antiwind === value) return;
