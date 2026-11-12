@@ -176,8 +176,9 @@ export function useHeadphones(t: Translations) {
     // notifications and polls, so the UI mode matches the headphones).
     if (mode === value) return;
     if (value === "custom") {
-      // Restore the last Custom slider value (full ANC when never set).
-      await change({ cmd: "custom", level: customLevel ?? 0 }, () => setMode(value));
+      // Restore the last Custom slider value; neutral (no ANC, no
+      // transparency) until the user picks a value.
+      await change({ cmd: "custom", level: customLevel ?? 50 }, () => setMode(value));
       return;
     }
     await change(value === "off" ? { cmd: "anc", state: "off" } : { cmd: "mode", mode: "adaptive" }, () => setMode(value));

@@ -236,8 +236,10 @@ export default function App() {
 
           <div className="flex flex-col gap-1 border-t border-white/10 pt-4">
             <div className="flex justify-between text-xs font-medium">
-              <span className={transparency < 50 ? "text-primary" : "text-muted-foreground"}>ANC {100 - transparency}%</span>
-              <span className={transparency >= 50 ? "text-primary" : "text-muted-foreground"}>{transparency}% {t.transparency}</span>
+              {/* Each track half covers its full 0-100% range: left of the
+                  zero point is ANC, right is transparency. */}
+              <span className={transparency < 50 ? "text-primary" : "text-muted-foreground"}>ANC {Math.max(0, (50 - transparency) * 2)}%</span>
+              <span className={transparency > 50 ? "text-primary" : "text-muted-foreground"}>{Math.max(0, (transparency - 50) * 2)}% {t.transparency}</span>
             </div>
             <Slider
               aria-label={t.ancSlider}
