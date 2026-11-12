@@ -2,11 +2,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 function createDesktop({ app, Menu, Tray, nativeImage, nativeTheme, powerMonitor, dialog, ipcMain, getBridgeDiagnostics }, showWindow, publish, stopBridge) {
-  let state = { language: "en", connected: false, busy: false, canConnect: false, closeToTray: false, mode: null, profiles: [] };
+  let state = { language: "en", connected: false, busy: false, closeToTray: false, mode: null, profiles: [] };
   let tray;
   const labels = {
-    en: { open: "Open Momentum 4 Control", connect: "Connect", disconnect: "Disconnect", cancel: "Cancel", adaptive: "Adaptive", custom: "Custom", off: "ANC off", profiles: "Profiles", quit: "Quit", disconnected: "Not connected", connected: "Connected" },
-    ru: { open: "Открыть Momentum 4 Control", connect: "Подключить", disconnect: "Отключить", cancel: "Отменить", adaptive: "Адаптивный", custom: "Настраиваемый", off: "ANC выкл.", profiles: "Профили", quit: "Выход", disconnected: "Не подключено", connected: "Подключено" },
+    en: { open: "Open Momentum 4 Control", adaptive: "Adaptive", custom: "Custom", off: "ANC off", profiles: "Profiles", quit: "Quit", disconnected: "Not connected", connected: "Connected" },
+    ru: { open: "Открыть Momentum 4 Control", adaptive: "Адаптивный", custom: "Настраиваемый", off: "ANC выкл.", profiles: "Профили", quit: "Выход", disconnected: "Не подключено", connected: "Подключено" },
   };
   const action = (value) => publish("desktop:action", value);
   function updateMenu() {
@@ -16,9 +16,6 @@ function createDesktop({ app, Menu, Tray, nativeImage, nativeTheme, powerMonitor
     tray.setToolTip(`Momentum 4 Control: ${state.connected ? t.connected : t.disconnected}`);
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: t.open, click: showWindow },
-      { type: "separator" },
-      { label: t.connect, enabled: state.canConnect && !state.connected && !state.busy, click: () => action({ action: "connect" }) },
-      { label: state.busy ? t.cancel : t.disconnect, enabled: state.connected || state.busy, click: () => action({ action: "disconnect" }) },
       { type: "separator" },
       ...["adaptive", "custom", "off"].map((mode) => ({
         label: t[mode],
@@ -59,7 +56,7 @@ function createDesktop({ app, Menu, Tray, nativeImage, nativeTheme, powerMonitor
 
   ipcMain.handle("desktop:sync", (_event, value) => {
     if (!value || !["en", "ru"].includes(value.language) ||
-        ["connected", "busy", "canConnect", "closeToTray"].some((key) => typeof value[key] !== "boolean") ||
+        ["connected", "busy", "closeToTray"].some((key) => typeof value[key] !== "boolean") ||
         ![null, "adaptive", "custom", "off", "comfort"].includes(value.mode) ||
         !Array.isArray(value.profiles) || value.profiles.length > 20 || value.profiles.some((p) =>
           !p || typeof p.id !== "string" || p.id.length > 80 || typeof p.name !== "string" || p.name.length > 40)) throw new Error("invalid desktop state");

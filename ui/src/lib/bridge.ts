@@ -66,13 +66,12 @@ export interface DesktopState {
   language: "en" | "ru";
   connected: boolean;
   busy: boolean;
-  canConnect: boolean;
   closeToTray: boolean;
   mode: AmbientMode | "comfort" | null;
   profiles: { id: string; name: string }[];
 }
 export type DesktopAction =
-  | { action: "connect" | "disconnect" | "suspend" | "resume" }
+  | { action: "suspend" | "resume" }
   | { action: "mode"; mode: AmbientMode }
   | { action: "profile"; id: string };
 export interface Desktop {

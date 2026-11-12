@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from bridge import Bridge, execute_request, gaia_frame, normalize_bt_address, parse_gaia_rsp, parse_state_value, run_request
-from gaia_transport import create_transport, spp_frame, take_spp_frame
+from gaia_transport import create_transport, find_headphones, spp_frame, take_spp_frame
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -294,6 +294,64 @@ class BridgeTransportTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["addr"], "AA:BB:CC:DD:EE:FF")
         factory.assert_called_once_with("AA:BB:CC:DD:EE:FF")
+
+    async def test_connect_without_address_discovers_sennheiser(self):
+        transport = FakeTransport()
+        bridge = Bridge()
+        with (
+            patch("bridge.find_headphones", return_value=[{"name": "MOMENTUM 4 Wireless", "address": "AA:BB:CC:DD:EE:FF"}]),
+            patch("bridge.create_transport", return_value=transport) as factory,
+        ):
+            result = await bridge.cmd_connect("")
+
+        self.assertEqual(result["addr"], "AA:BB:CC:DD:EE:FF")
+        factory.assert_called_once_with("AA:BB:CC:DD:EE:FF")
+
+    async def test_connect_without_address_prefers_previous_device(self):
+        transport = FakeTransport()
+        bridge = Bridge()
+        bridge.addr = "11:22:33:44:55:66"
+        with (
+            patch(
+                "bridge.find_headphones",
+                return_value=[
+                    {"name": "MOMENTUM 4 Wireless", "address": "AA:BB:CC:DD:EE:FF"},
+                    {"name": "Sennheiser MOMENTUM", "address": "11:22:33:44:55:66"},
+                ],
+            ),
+            patch("bridge.create_transport", return_value=transport) as factory,
+        ):
+            result = await bridge.cmd_connect("")
+
+        self.assertEqual(result["addr"], "11:22:33:44:55:66")
+        factory.assert_called_once_with("11:22:33:44:55:66")
+
+    async def test_connect_without_address_fails_without_paired_headphones(self):
+        bridge = Bridge()
+        with patch("bridge.find_headphones", return_value=[]):
+            with self.assertRaises(RuntimeError):
+                await bridge.cmd_connect("")
+        self.assertIsNone(bridge.tr)
+
+    def test_find_headphones_filters_and_sorts_by_name(self):
+        with patch(
+            "gaia_transport.list_paired_devices",
+            return_value=[
+                {"name": "WH-1000XM5", "address": "AA:AA:AA:AA:AA:AA"},
+                {"name": "MOMENTUM 4 Wireless", "address": "AA:BB:CC:DD:EE:FF"},
+                {"name": "sennheiser BTD 800", "address": "11:11:11:11:11:11"},
+                {"name": "", "address": "22:22:22:22:22:22"},
+            ],
+        ):
+            devices = find_headphones()
+
+        self.assertEqual(
+            devices,
+            [
+                {"name": "MOMENTUM 4 Wireless", "address": "AA:BB:CC:DD:EE:FF"},
+                {"name": "sennheiser BTD 800", "address": "11:11:11:11:11:11"},
+            ],
+        )
 
     async def test_get_keeps_state_slots_when_a_response_is_missing(self):
         response = spp_frame(gaia_frame(0x1B05, b"\x01"))

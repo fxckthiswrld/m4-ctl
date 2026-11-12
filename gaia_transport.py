@@ -8,6 +8,7 @@
 
 import asyncio
 import platform
+import re
 import sys
 import threading
 import time
@@ -587,6 +588,22 @@ def list_paired_devices():
     elif system == "Darwin":
         return _list_paired_macos()
     return []
+
+
+# Имя устройства — единственный надёжный признак без SDP-запросов (быстро и
+# не требует Bluetooth-разрешений). Покрывает MOMENTUM (2/4/ML) и другие
+# линейки Sennheiser, у которых бренд в имени.
+_HEADPHONES_NAME_RE = re.compile(r"sennheiser|momentum", re.IGNORECASE)
+
+
+def find_headphones():
+    """Сопряжённые наушники Sennheiser: [{name, address}] или [].
+
+    Отсортированы по имени — детерминированный порядок для авто-выбора.
+    """
+    devices = [d for d in list_paired_devices() if _HEADPHONES_NAME_RE.search(d.get("name", ""))]
+    devices.sort(key=lambda d: d.get("name", ""))
+    return devices
 
 
 def _list_paired_windows():

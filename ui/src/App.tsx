@@ -1,5 +1,5 @@
 import * as React from "react";
-import { VolumeX, Volume2, AudioWaveform, Wind, Zap, RefreshCw, Power, PowerOff, Wifi, WifiOff, Download } from "lucide-react";
+import { VolumeX, Volume2, AudioWaveform, Wind, Zap, Wifi, WifiOff, Download } from "lucide-react";
 import headphonesImage from "../../headphones_nobg.png";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -81,10 +81,10 @@ export default function App() {
   const prefs = usePreferences();
   const { language, setLanguage } = prefs;
   const t = translations[language];
-  const headphones = useHeadphones(t, prefs.autoConnect);
-  const { bridgeReady, status, statusText, devices, deviceListStatus, deviceListError, selectedAddr, setSelectedAddr, mode, antiwind,
+  const headphones = useHeadphones(t);
+  const { bridgeReady, status, statusText, mode, antiwind,
     transparency, setTransparency, deviceState, busy, recovering, log, connected, customControlsDisabled,
-    refreshDevices, connect, disconnect, cancel, setAmbientMode, setAntiwindLevel,
+    setAmbientMode, setAntiwindLevel,
     commitTransparencyLevel, onInteractionChange } = headphones;
   const [tab, setTab] = React.useState<"controls" | "settings" | "diagnostics">("controls");
   const [exporting, setExporting] = React.useState(false);
@@ -93,8 +93,6 @@ export default function App() {
   const desktopHandler = React.useRef<(event: DesktopAction) => void>(() => {});
   desktopHandler.current = (event) => {
     let action: Promise<void> | undefined;
-    if (event.action === "connect") action = connect();
-    if (event.action === "disconnect") action = busy || recovering ? cancel() : disconnect();
     if (event.action === "mode") action = setAmbientMode(event.mode);
     if (event.action === "profile") {
       const profile = prefs.profiles.find((p) => p.id === event.id);
@@ -106,10 +104,10 @@ export default function App() {
   };
   React.useEffect(() => window.desktop?.onAction((event) => desktopHandler.current(event)), []);
   React.useEffect(() => {
-    void window.desktop?.sync({ language, connected, busy: busy || recovering, canConnect: !!selectedAddr,
+    void window.desktop?.sync({ language, connected, busy: busy || recovering,
       closeToTray: prefs.closeToTray, mode: deviceState?.anc?.enabled === false ? "off" : deviceState?.mode?.key || null,
       profiles: prefs.profiles.map(({ id, name }) => ({ id, name })) }).catch((error: unknown) => headphones.pushLog(String(error)));
-  }, [language, connected, busy, recovering, selectedAddr, prefs.closeToTray, deviceState, prefs.profiles]);
+  }, [language, connected, busy, recovering, prefs.closeToTray, deviceState, prefs.profiles]);
 
   async function exportDiagnostics() {
     if (!window.desktop) return;
@@ -184,74 +182,6 @@ export default function App() {
       </nav>
       <div id="panel-controls" role="tabpanel" aria-labelledby="tab-controls" hidden={tab !== "controls"}>
       <div className="flex flex-col gap-5">
-      {/* Device */}
-      <Section title={t.device}>
-        <div className="flex flex-col gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <Select
-              value={selectedAddr}
-              options={[
-                { value: "", label: t.chooseHeadphones },
-                ...(selectedAddr && !devices.some((device) => device.address === selectedAddr)
-                  ? [{ value: selectedAddr, label: `${t.savedDevice} (${selectedAddr})` }] : []),
-                ...devices.map((d) => ({
-                  value: d.address,
-                  label: `${d.name} (${d.address})`,
-                })),
-              ]}
-              onChange={setSelectedAddr}
-              aria-label={t.device}
-              disabled={connected || busy || recovering}
-              className="min-w-0 flex-1"
-            />
-            <Button
-              size="icon"
-              variant="outline"
-              className="shrink-0"
-              onClick={refreshDevices}
-              disabled={busy}
-              title={t.refreshDevices}
-              aria-label={t.refreshDevices}
-            >
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-          </div>
-          {deviceListStatus === "error" ? (
-            <p role="alert" className="break-words text-xs text-red-400">{t.deviceSearchFailed}: {deviceListError}</p>
-          ) : deviceListStatus === "loading" ? (
-            <p role="status" className="text-xs text-muted-foreground">{t.searchingDevices}</p>
-          ) : devices.length === 0 ? (
-            <p role="status" className="text-xs text-muted-foreground">{t.noPairedDevices}</p>
-          ) : null}
-          <div className="flex min-w-0 gap-2">
-            <Button
-              variant="outline"
-              className="min-w-0 flex-1"
-              disabled={!selectedAddr || status === "connecting" || busy || connected}
-              onClick={connect}
-            >
-              <Power className="h-4 w-4" />
-              {t.connect}
-            </Button>
-            <Button
-              variant="outline"
-              className="min-w-0 flex-1"
-              disabled={!connected && !busy && !recovering}
-              onClick={busy || recovering ? cancel : disconnect}
-            >
-              <PowerOff className="h-4 w-4" />
-              {busy || recovering ? t.cancel : t.disconnect}
-            </Button>
-          </div>
-          {status === "error" && selectedAddr && (
-            <Button variant="secondary" disabled={busy} onClick={connect}>
-              <RefreshCw className="h-4 w-4" />
-              {t.reconnect}
-            </Button>
-          )}
-        </div>
-      </Section>
-
       {/* Ambient Sound Control */}
       <Section title={t.ambient}>
         <div className="flex items-start justify-around">
@@ -348,13 +278,10 @@ export default function App() {
         <Section title={t.settings}>
           <div className="flex flex-col gap-5">
             <div className="flex items-center justify-between gap-4">
-              <span className="text-sm">{t.autoConnect}</span>
-              <Toggle aria-label={t.autoConnect} checked={prefs.autoConnect} onChange={prefs.setAutoConnect} />
-            </div>
-            <div className="flex items-center justify-between gap-4">
               <span className="text-sm">{t.closeToTray}</span>
               <Toggle aria-label={t.closeToTray} checked={prefs.closeToTray} onChange={prefs.setCloseToTray} />
             </div>
+            <p className="text-xs text-muted-foreground">{t.autoConnectHint}</p>
           </div>
         </Section>
       </div>

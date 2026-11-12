@@ -7,7 +7,6 @@ export function usePreferences() {
     const value = localStorage.getItem("m4-language");
     return value === "en" || value === "ru" ? value : navigator.language.startsWith("ru") ? "ru" : "en";
   });
-  const [autoConnect, setAutoConnect] = React.useState(() => localStorage.getItem("m4-auto-connect") === "true");
   const [closeToTray, setCloseToTray] = React.useState(() => localStorage.getItem("m4-close-to-tray") === "true");
   const [profiles, setProfiles] = React.useState<Profile[]>(() => {
     try {
@@ -25,10 +24,9 @@ export function usePreferences() {
     localStorage.setItem("m4-language", language);
     document.documentElement.lang = language;
   }, [language]);
-  React.useEffect(() => { localStorage.setItem("m4-auto-connect", String(autoConnect)); }, [autoConnect]);
   React.useEffect(() => { localStorage.setItem("m4-close-to-tray", String(closeToTray)); }, [closeToTray]);
   React.useEffect(() => { localStorage.setItem("m4-profiles", JSON.stringify(profiles)); }, [profiles]);
-  return { language, setLanguage, autoConnect, setAutoConnect, closeToTray, setCloseToTray, profiles, setProfiles };
+  return { language, setLanguage, closeToTray, setCloseToTray, profiles, setProfiles };
 }
 
 function isProfile(value: unknown): value is Profile {

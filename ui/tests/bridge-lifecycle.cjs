@@ -211,7 +211,7 @@ test("process exit and spawn failure release pending requests immediately", asyn
 
 test("tray uses shared actions and respects busy and close preferences", async () => {
   const h = await harness();
-  const state = { language: "en", connected: true, busy: false, canConnect: true, closeToTray: true, mode: "custom", profiles: [{ id: "work", name: "Work" }] };
+  const state = { language: "en", connected: true, busy: false, closeToTray: true, mode: "custom", profiles: [{ id: "work", name: "Work" }] };
   h.desktop(state);
   const adaptive = h.tray.menu.find((item) => item.label === "Adaptive");
   assert.equal(adaptive.enabled, true);
@@ -228,7 +228,8 @@ test("tray uses shared actions and respects busy and close preferences", async (
   assert.equal(h.windows[0].hidden, false, "dock activation must reopen a hidden window");
   h.desktop({ ...state, busy: true });
   assert.equal(h.tray.menu.find((item) => item.label === "Adaptive").enabled, false);
-  assert.ok(h.tray.menu.find((item) => item.label === "Cancel"));
+  assert.ok(!h.tray.menu.find((item) => item.label === "Connect"), "manual connect must not exist in the tray");
+  assert.ok(!h.tray.menu.find((item) => item.label === "Disconnect"), "manual disconnect must not exist in the tray");
   h.app.quit();
   prevented = false;
   h.windows[0].emit("close", { preventDefault: () => { prevented = true; } });

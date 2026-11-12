@@ -53,7 +53,7 @@ if (!process.env.M4_SMOKE_SECONDARY) {
       await reloaded;
       await verifyBridge(window);
       assert.equal(await window.webContents.executeJavaScript('sessionStorage.getItem("m4-manually-stopped")'), "true");
-      await window.webContents.executeJavaScript('window.desktop.sync({ language: "en", connected: false, busy: false, canConnect: false, closeToTray: true, mode: null, profiles: [] })');
+      await window.webContents.executeJavaScript('window.desktop.sync({ language: "en", connected: false, busy: false, closeToTray: true, mode: null, profiles: [] })');
       window.close();
       assert.equal(window.isDestroyed(), false);
       assert.equal(window.isVisible(), false);

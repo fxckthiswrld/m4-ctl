@@ -30,9 +30,10 @@ if (process.type === "renderer") {
     return originalSetInterval(callback, delay, ...args);
   };
   localStorage.setItem("m4-language", "en");
-  localStorage.setItem("m4-device-address", "test-device");
-  if (localStorage.getItem("m4-test-startup") !== "true") localStorage.removeItem("m4-auto-connect");
-  localStorage.removeItem("m4-test-startup");
+  // Only the first load starts from a clean slate; later loads test
+  // reconnecting with the remembered device.
+  if (localStorage.getItem("m4-test-keep-last") === "true") localStorage.removeItem("m4-test-keep-last");
+  else localStorage.removeItem("m4-last-connected");
   localStorage.removeItem("m4-close-to-tray");
   localStorage.removeItem("m4-profiles");
   window.desktop = {
@@ -86,12 +87,14 @@ if (process.type === "renderer") {
     try {
       await window.loadFile(path.join(__dirname, "../dist/index.html"));
       await window.webContents.executeJavaScript(`(${runTests.toString()})()`);
-      await window.webContents.executeJavaScript('localStorage.setItem("m4-auto-connect", "true"); localStorage.setItem("m4-test-startup", "true")');
+      // Fresh session: the last connected device must reconnect on startup.
+      await window.webContents.executeJavaScript('localStorage.setItem("m4-test-keep-last", "true")');
       await window.loadFile(path.join(__dirname, "../dist/index.html"));
       await window.webContents.executeJavaScript(`(${runStartupTest.toString()})()`);
-      await window.webContents.executeJavaScript('localStorage.setItem("m4-test-startup", "true")');
+      // Fresh session without history: auto-discovery (empty address).
+      await window.webContents.executeJavaScript('localStorage.removeItem("m4-last-connected")');
       await window.loadFile(path.join(__dirname, "../dist/index.html"));
-      await window.webContents.executeJavaScript(`(${runManualStopReloadTest.toString()})()`);
+      await window.webContents.executeJavaScript(`(${runAutoDiscoveryTest.toString()})()`);
       console.log("Status polling UI regression tests passed");
       app.exit(0);
     } catch (error) {
@@ -106,31 +109,35 @@ async function runStartupTest() {
   const mock = window.pollTest;
   const flush = () => new Promise((resolve) => setTimeout(resolve, 40));
   await flush();
-  const list = mock.requests.shift();
-  assert.equal(list.cmd, "list");
-  mock.reply(list, [{ name: "MOMENTUM 4", address: "test-device" }]);
-  await flush();
   const connect = mock.requests.shift();
-  assert.equal(connect.cmd, "connect", "startup must reconnect the last successful device");
-  assert.equal(connect.addr, "test-device");
-  document.querySelectorAll("button").forEach((button) => { if (button.textContent.trim() === "Cancel") button.click(); });
+  assert.equal(connect.cmd, "connect", "startup must connect automatically");
+  assert.equal(connect.addr, "test-device", "startup must reuse the last connected device");
+  mock.reply(connect, { connected: true, addr: "test-device" });
   await flush();
+  const get = mock.requests.shift();
+  assert.equal(get.cmd, "get");
+  mock.reply(get, { state: { anc: { enabled: true }, mode: { key: "custom", antiwind: 1 }, transparency: { level: 25 } } });
+  await flush();
+  assert.match(document.body.textContent, /Connected/);
   assert.equal(mock.requests.length, 0);
 }
 
-async function runManualStopReloadTest() {
+async function runAutoDiscoveryTest() {
   const assert = require("node:assert/strict");
   const mock = window.pollTest;
   const flush = () => new Promise((resolve) => setTimeout(resolve, 40));
   await flush();
-  const list = mock.requests.shift();
-  assert.equal(list.cmd, "list");
-  mock.reply(list, []);
+  const connect = mock.requests.shift();
+  assert.equal(connect.cmd, "connect", "startup must connect automatically");
+  assert.equal(connect.addr, "", "without history the bridge must discover the headphones");
+  mock.reply(connect, { connected: true, addr: "auto-device" });
   await flush();
-  mock.action({ action: "resume" });
+  assert.equal(localStorage.getItem("m4-last-connected"), "auto-device", "the discovered address must be remembered");
+  const get = mock.requests.shift();
+  mock.reply(get, { state: { anc: { enabled: true }, mode: { key: "custom", antiwind: 1 }, transparency: { level: 25 } } });
   await flush();
-  assert.equal(mock.requests.length, 0, "manual cancel must survive renderer recovery");
-  assert.equal(localStorage.getItem("m4-auto-connect"), "true");
+  assert.match(document.body.textContent, /Connected/);
+  assert.equal(mock.requests.length, 0);
 }
 
 async function runTests() {
@@ -153,27 +160,22 @@ async function runTests() {
     await flush();
   };
   const connected = () => assert.match(document.body.textContent, /Connected/);
+  const connectOk = { connected: true, addr: "test-device" };
 
-  await reply(await next("list"), []);
-  assert.match(document.body.textContent, /No paired Bluetooth devices found/);
-  const deviceSelect = document.querySelector('select[aria-label="Device"]');
-  assert.equal(deviceSelect.value, "test-device");
-  assert.match(deviceSelect.selectedOptions[0].textContent, /Saved device/);
-  document.querySelector('[aria-label="Refresh device list"]').click();
-  const failedList = await next("list");
-  mock.reply(failedList, undefined, "Bluetooth disabled");
-  await flush();
-  assert.match(document.querySelector('[role="alert"]').textContent, /Device search failed: Bluetooth disabled/);
-  assert.equal(deviceSelect.value, "test-device");
-  document.querySelector('[aria-label="Refresh device list"]').click();
-  await reply(await next("list"), [{ name: "MOMENTUM 4", address: "test-device" }]);
-  assert.equal(document.querySelector('[role="alert"]'), null);
-  assert.match(deviceSelect.selectedOptions[0].textContent, /MOMENTUM 4/);
-  button("Connect").click();
-  await reply(await next("connect"), {});
+  // Startup auto-connect with no history: empty address = bridge-side
+  // discovery. The reply reports the resolved device address.
+  const startup = await next("connect");
+  assert.equal(startup.addr, "");
+  await reply(startup, connectOk);
   await reply(await next("get"), state());
   connected();
+  assert.match(document.body.textContent, /Battery: 82%/);
+  assert.match(document.body.textContent, /Firmware: 3.18.0/);
 
+  // The device reports anti-wind 0: switching to Max must send a command
+  // (selecting the already-active level is skipped as a no-op).
+  mock.poll();
+  await reply(await next("get"), state("custom", 25, 0));
   button("Max").click();
   await reply(await next("antiwind"), {});
   await reply(await next("get"), state());
@@ -285,47 +287,32 @@ async function runTests() {
   await reply(await next("get"), state("custom", 95));
   assert.equal(slider.getAttribute("aria-valuenow"), "95", "cancelled drag must allow polling to resume");
 
-  mock.poll();
-  const beforeDisconnect = await next("get");
-  button("Disconnect").click();
-  const close = await next("close");
-  await reply(beforeDisconnect, state("adaptive", 90));
-  assert.match(document.body.textContent, /Not connected/);
-  assert.match(document.querySelector('[aria-live="polite"]').textContent, /Unknown/);
-  await reply(close, {});
-
-  button("Connect").click();
-  await reply(await next("connect"), {});
-  await reply(await next("get"), state());
+  // A failed status read surfaces the error and schedules an automatic retry.
   mock.poll();
   const failed = await next("get");
   mock.reply(failed, undefined, "connection lost");
   await flush();
   assert.match(document.body.textContent, /Error: connection lost/);
   assert.equal(button("Adaptive").disabled, true, "poll errors must remain visible");
+  assert.equal(mock.hasRetry(), true, "connection errors schedule an automatic retry");
+  mock.retry();
+  await reply(await next("connect"), connectOk);
+  await reply(await next("get"), state());
+  connected();
 
-  button("Connect").click();
-  const cancelled = await next("connect");
-  button("Cancel").click();
-  await flush();
-  await reply(cancelled, {});
-  assert.match(document.body.textContent, /Not connected/);
-  assert.equal(mock.requests.length, 0, "late connect reply must not trigger status reads");
-  assert.equal(button("Connect").disabled, false);
-
-  button("Connect").click();
-  const crashed = await next("connect");
+  // A bridge crash settles the pending request immediately.
+  mock.poll();
+  const crashed = await next("get");
   mock.event({ event: "stopped", error: "bridge crashed" });
   await flush();
   assert.match(document.body.textContent, /bridge crashed/);
-  assert.equal(button("Connect").disabled, false, "crash must settle pending requests immediately");
-  await reply(crashed, {});
-  assert.equal(mock.requests.length, 0);
-
-  mock.event({ event: "ready" });
-  button("Connect").click();
-  await reply(await next("connect"), {});
+  await reply(crashed, state());
+  assert.equal(mock.requests.length, 0, "late reply after a crash must not trigger reads");
+  mock.retry();
+  await reply(await next("connect"), connectOk);
   await reply(await next("get"), state());
+  connected();
+
   mock.poll();
   const recovering = await next("get");
   mock.event({ event: "reconnecting" });
@@ -341,12 +328,10 @@ async function runTests() {
   await reply(await next("get"), { state: { anc: null, mode: null, transparency: null } });
   assert.match(document.body.textContent, /device state unavailable/);
   assert.ok(document.querySelector("img").naturalWidth > 0);
-
-  button("Connect").click();
-  await reply(await next("connect"), {});
+  mock.retry();
+  await reply(await next("connect"), connectOk);
   await reply(await next("get"), state());
-  assert.match(document.body.textContent, /Battery: 82%/);
-  assert.match(document.body.textContent, /Firmware: 3.18.0/);
+  connected();
 
   // A device notification (ANC button on the headphones) must trigger a
   // debounced background state refresh instead of waiting for the poll.
@@ -396,19 +381,22 @@ async function runTests() {
   document.querySelector('[aria-label="Close to tray"]').click();
   await flush();
   assert.equal(mock.desktop().closeToTray, true);
-  document.querySelector('[aria-label="Automatically connect"]').click();
-  await flush();
-  assert.equal(localStorage.getItem("m4-auto-connect"), "true");
+
+  // System suspend cancels in-flight work; resume reconnects automatically.
   mock.action({ action: "suspend" });
   await flush();
   mock.action({ action: "resume" });
-  await reply(await next("connect"), {});
+  const resumed = await next("connect");
+  assert.equal(resumed.addr, "test-device");
+  await reply(resumed, connectOk);
   await reply(await next("get"), state());
+  connected();
+
   mock.poll();
   mock.reply(await next("get"), undefined, "connection lost");
   await flush();
   mock.retry();
-  await reply(await next("connect"), {});
+  await reply(await next("connect"), connectOk);
   await reply(await next("get"), state());
   mock.poll();
   mock.reply(await next("get"), undefined, "connection lost");
@@ -416,30 +404,27 @@ async function runTests() {
   for (let attempt = 0; attempt < 3; attempt++) {
     assert.equal(mock.hasRetry(), true);
     mock.retry();
-    await reply(await next("connect"), {});
+    await reply(await next("connect"), connectOk);
     mock.reply(await next("get"), undefined, "no acknowledgement");
     await flush();
   }
   assert.deepEqual(mock.retryDelays.slice(-3), [15000, 30000, 60000]);
   assert.equal(mock.hasRetry(), false, "failed state reads must not reset the retry budget");
   assert.match(document.body.textContent, /no acknowledgement/);
-  mock.action({ action: "connect" });
-  await reply(await next("connect"), {});
-  await reply(await next("get"), state());
-  mock.action({ action: "disconnect" });
-  await reply(await next("close"), {});
+
+  // Resume reconnects even after the retry budget is exhausted.
   mock.action({ action: "suspend" });
   await flush();
   mock.action({ action: "resume" });
-  mock.retry();
-  await flush();
-  assert.equal(mock.requests.length, 0, "manual disconnect must suppress automatic reconnect");
+  const revived = await next("connect");
+  assert.equal(revived.addr, "test-device");
+  await reply(revived, connectOk);
+  await reply(await next("get"), state());
+  connected();
 
   button("Diagnostics").click();
   await flush();
   button("Export diagnostics").click();
   await flush();
   assert.match(document.body.textContent, /Diagnostics saved/);
-  // Model a fresh application session before testing startup reconnect.
-  sessionStorage.removeItem("m4-manually-stopped");
 }

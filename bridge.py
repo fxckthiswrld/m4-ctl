@@ -65,7 +65,7 @@ def _setup_logging():
 
 LOGGER = _setup_logging()
 
-from gaia_transport import create_transport, list_paired_devices
+from gaia_transport import create_transport, find_headphones, list_paired_devices
 
 VENDOR = 0x0495
 COMMAND_TIMEOUT = 60.0
@@ -526,7 +526,29 @@ class Bridge:
             raise RuntimeError(f"GAIA 0x{command:04X} rejected: {parsed['payload'].hex(' ')}")
         return response
 
-    async def cmd_connect(self, addr: str):
+    async def _discover_headphones(self) -> str:
+        """Адрес сопряжённых наушников Sennheiser; "" если не найдены.
+
+        Предпочтение — адрес уже известный бриджу (переподключение к той же
+        паре), иначе единственный найденный, иначе первый по имени.
+        """
+        if platform.system() == "Darwin":
+            devices = find_headphones()
+        else:
+            devices = await asyncio.to_thread(find_headphones)
+        addresses = [normalize_bt_address(d["address"]) for d in devices]
+        if self.addr and self.addr in addresses:
+            return self.addr
+        return addresses[0] if addresses else ""
+
+    async def cmd_connect(self, addr: str = ""):
+        if not addr:
+            # Авто-подключение: ищем сопряжённые наушники Sennheiser.
+            addr = await self._discover_headphones()
+            if not addr:
+                raise RuntimeError(
+                    "Наушники Sennheiser не найдены: сопрягите их с этим компьютером в настройках Bluetooth"
+                )
         self.addr = normalize_bt_address(addr)
         async with self._recover_lock:
             await self._reconnect_now()
