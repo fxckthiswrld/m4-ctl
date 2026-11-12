@@ -195,11 +195,9 @@ async function runTests() {
 
   mock.poll();
   await reply(await next("get"), state("adaptive", 40));
-  assert.match(document.querySelector('[aria-live="polite"]').textContent, /Adaptive.*40%/);
 
   mock.poll();
   await reply(await next("get"), state("comfort", 40, 2));
-  assert.match(document.querySelector('[aria-live="polite"]').textContent, /Comfort/);
   assert.equal(button("Adaptive").getAttribute("aria-pressed"), "false");
   assert.equal(button("Custom").getAttribute("aria-pressed"), "false");
   assert.equal(button("Auto").getAttribute("aria-pressed"), "true");
@@ -323,7 +321,6 @@ async function runTests() {
   await reply(recovering, { state: { anc: { enabled: true }, mode: null, transparency: null } });
   assert.equal(button("Max").getAttribute("aria-pressed"), "false");
   assert.equal(button("Auto").getAttribute("aria-pressed"), "false");
-  assert.match(document.querySelector('[aria-live="polite"]').textContent, /Unknown/);
   mock.poll();
   await reply(await next("get"), { state: { anc: null, mode: null, transparency: null } });
   assert.match(document.body.textContent, /device state unavailable/);

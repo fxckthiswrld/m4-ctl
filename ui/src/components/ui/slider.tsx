@@ -6,6 +6,8 @@ export interface SliderProps {
   min?: number;
   max?: number;
   step?: number;
+  /** Neutral marker position on the track; the fill line runs to it. */
+  zeroPoint?: number;
   disabled?: boolean;
   className?: string;
   "aria-label": string;
@@ -19,6 +21,7 @@ export function Slider({
   min = 0,
   max = 100,
   step = 1,
+  zeroPoint,
   disabled,
   className,
   "aria-label": label,
@@ -56,6 +59,10 @@ export function Slider({
   }
 
   const pct = max === min ? 0 : ((clamp(value) - min) / (max - min)) * 100;
+  const zero = zeroPoint ?? min;
+  const zeroPct = max === min ? 0 : ((zero - min) / (max - min)) * 100;
+  const fillStart = Math.min(pct, zeroPct);
+  const fillWidth = Math.abs(pct - zeroPct);
 
   function valueFromEvent(e: React.PointerEvent) {
     const rect = ref.current?.getBoundingClientRect();
@@ -129,11 +136,18 @@ export function Slider({
       <div className="absolute top-1/2 h-1 w-full -translate-y-1/2 rounded-full bg-secondary" />
       <div
         className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-primary"
-        style={{ width: `${pct}%` }}
+        style={{ left: `${fillStart}%`, width: `${fillWidth}%` }}
       />
+      {zeroPoint !== undefined && (
+        <div
+          aria-hidden="true"
+          className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/70"
+          style={{ left: `${zeroPct}%` }}
+        />
+      )}
       <div
         aria-hidden="true"
-        className="absolute top-1/2 h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/30 bg-white shadow-md shadow-black/25 transition-[box-shadow,transform] duration-100"
+        className="absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/30 bg-primary shadow-md shadow-black/25 transition-[box-shadow,transform] duration-100"
         style={{ left: `${pct}%` }}
       />
     </div>

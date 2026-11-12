@@ -88,12 +88,6 @@ export default function App() {
     commitTransparencyLevel, onInteractionChange } = headphones;
   const [tab, setTab] = React.useState<"controls" | "settings" | "diagnostics">("controls");
   const [exporting, setExporting] = React.useState(false);
-  const reportedKey = deviceState?.anc?.enabled === false ? "off" : deviceState?.mode?.key;
-  const reportedModeLabel = reportedKey ? t[reportedKey as AmbientMode | "comfort"] : t.unknown;
-  // The device slider is a transparency level (0 = full ANC, 100 = full
-  // transparency). Show ANC as the complement so the numbers are unambiguous.
-  const transparencyLevel = typeof deviceState?.transparency?.level === "number" ? deviceState.transparency.level : null;
-  const ancPercent = transparencyLevel == null ? null : 100 - transparencyLevel;
   const desktopHandler = React.useRef<(event: DesktopAction) => void>(() => {});
   desktopHandler.current = (event) => {
     let action: Promise<void> | undefined;
@@ -240,34 +234,23 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-2 border-t border-white/10 pt-4">
-            <h3 className="mb-1 text-xs font-medium text-muted-foreground">{t.ancSlider}</h3>
-            <div className="flex items-center gap-3">
-              <Slider
-                aria-label={t.ancSlider}
-                value={transparency}
-                min={0}
-                max={100}
-                step={5}
-                disabled={customControlsDisabled}
-                onChange={setTransparency}
-                onCommit={commitTransparencyLevel}
-                onInteractionChange={onInteractionChange}
-              />
-              <span className="w-14 text-right text-sm font-semibold tabular-nums">
-                {transparencyLevel == null && !busy ? "?" : `${100 - transparency}% ANC`}
-              </span>
+          <div className="flex flex-col gap-1 border-t border-white/10 pt-4">
+            <div className="flex justify-between text-xs font-medium">
+              <span className={transparency < 50 ? "text-primary" : "text-muted-foreground"}>ANC {100 - transparency}%</span>
+              <span className={transparency >= 50 ? "text-primary" : "text-muted-foreground"}>{transparency}% {t.transparency}</span>
             </div>
-            <div className="flex justify-between px-1 text-[11px] font-medium text-muted-foreground">
-              <span>{t.anc100}</span>
-              <span>{t.transparency100}</span>
-            </div>
-            <p className="text-[11px] text-muted-foreground" aria-live="polite">
-              {t.currentState}: {reportedModeLabel}
-              {` · ANC ${ancPercent == null ? t.unknown : `${ancPercent}%`}`}
-              {` · ${t.transparency} ${transparencyLevel == null ? t.unknown : `${transparencyLevel}%`}`}
-              {busy && ` · ${t.busy}`}
-            </p>
+            <Slider
+              aria-label={t.ancSlider}
+              value={transparency}
+              min={0}
+              max={100}
+              step={5}
+              zeroPoint={50}
+              disabled={customControlsDisabled}
+              onChange={setTransparency}
+              onCommit={commitTransparencyLevel}
+              onInteractionChange={onInteractionChange}
+            />
           </div>
         </div>
       </Section>
