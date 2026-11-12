@@ -84,8 +84,9 @@ export function Slider({
       aria-orientation="horizontal"
       className={cn(
         // Keep a 44px interaction area around the 4px track, as recommended
-        // by Apple HIG, while preserving a compact visual control.
-        "relative h-11 w-full touch-none select-none rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        // by Apple HIG, while preserving a compact visual control. No focus
+        // ring: the moving thumb is the focus indicator.
+        "relative h-11 w-full touch-none select-none rounded-full outline-none",
         disabled && "pointer-events-none opacity-50",
         className
       )}
