@@ -9,13 +9,14 @@ Windows and macOS are supported.
 
 ## Features
 
-- Discover paired Bluetooth devices and connect to Momentum 4.
+- Automatic connection: finds paired Sennheiser headphones on startup, no
+  manual device selection.
 - ANC modes: Adaptive, Custom, Comfort, and Off.
 - Anti-Wind: Off, Max, and Auto.
 - Transparency adjustment in Custom mode.
 - Electron desktop app with a Python Bluetooth bridge.
 - Tray controls and saved profiles with rename and delete actions.
-- Optional automatic connection and recovery after sleep.
+- Automatic recovery after errors, sleep, and resume.
 - Battery and firmware information when reported by the headphones.
 - Diagnostic export with application version and redacted Bluetooth addresses.
 
@@ -47,17 +48,18 @@ npm ci
 npm run dev
 ```
 
-Electron starts `bridge.py` automatically. Choose the headphones, connect, and
-adjust the available modes in the app.
+Electron starts `bridge.py` automatically. The app connects to your paired
+Sennheiser headphones on its own: it reuses the last connected device, and
+without a saved choice it discovers paired Sennheiser headphones (preferring
+the only match, otherwise the first by name). Pair the headphones in the
+system Bluetooth settings first; the app takes care of the rest.
 
 The transparency slider supports arrow keys, Home, and End. Holding a key adjusts
 the preview; releasing it or leaving the slider applies the value.
 
-The Application tab contains automatic connection and close-to-tray preferences;
-both default to off. Automatic connection uses the last successfully connected
-headphones at startup and retries a lost connection. Manual disconnect or cancel
-suppresses retries until the next explicit connection, re-enabling the preference,
-or restarting the application. Use Quit in the tray menu to exit completely.
+The Application tab contains the close-to-tray preference (off by default).
+Lost connections retry automatically with a growing delay and recover after
+system sleep. Use Quit in the tray menu to exit completely.
 
 Profiles start with Work, Street, and Transport presets. Save confirmed device
 settings under a new name, rename or delete profiles, and apply them from the
@@ -65,8 +67,8 @@ window or tray. Profiles are never applied automatically on connection. The
 Diagnostics tab exports a JSON report through a save dialog.
 
 Only one application instance runs at a time. Launching it again opens the
-existing window. A crashed interface reloads automatically, preserving manual
-disconnect for the current session; repeated crashes close the app with an error.
+existing window. A crashed interface reloads automatically; repeated crashes
+close the app with an error.
 
 Run `python -m unittest discover -s tests -v` from the repository root and
 `npm run typecheck`, `npm run test:desktop`, and `npm run test:ui` from `ui`.
