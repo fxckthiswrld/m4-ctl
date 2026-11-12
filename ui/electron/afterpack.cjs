@@ -2,16 +2,17 @@
 //
 // Bluetooth permissions (TCC) are keyed to the app's code-signing identity.
 // An ad-hoc signature has no stable identity, so macOS re-prompts on every
-// launch and IOBluetooth calls end up silently denied (empty paired-device
-// lists, empty SDP results). Signing with a persistent self-signed code
-// signing certificate gives the app a stable identity: the grant is stored
-// once and survives relaunches and reinstalls signed with the same cert.
+// launch and IOBluetooth calls end up silently denied. Signing with a
+// persistent self-signed code signing certificate (kept in a dedicated
+// never-locking keychain) gives the app a stable identity: the grant is
+// stored once and survives relaunches and reinstalls signed with the same
+// cert.
 //
 // Notes:
-// - /usr/bin/openssl on macOS is LibreSSL and does not support -addext, so
-//   the extensions are passed via a config file.
-// - A dedicated keychain avoids GUI prompts: CI runners and SSH sessions
-//   have no security agent to answer them.
+// - /usr/bin/openssl on macOS is LibreSSL: extensions go via a config file.
+// - The keychain is explicitly unlocked before signing: SSH sessions and
+//   reboots leave it locked, and errSecInternalComponent during deep sign
+//   means the key was unreachable.
 const { execSync } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -33,8 +34,16 @@ function keychainPassword() {
   return generated;
 }
 
+function unlockKeychain() {
+  const pass = keychainPassword();
+  execSync(`security unlock-keychain -p "${pass}" "${KEYCHAIN}"`, { stdio: "ignore" });
+}
+
 function ensureKeychain() {
-  if (fs.existsSync(KEYCHAIN)) return;
+  if (fs.existsSync(KEYCHAIN)) {
+    unlockKeychain();
+    return;
+  }
   const pass = keychainPassword();
   console.log("Creating signing keychain: " + KEYCHAIN);
   execSync(`security create-keychain -p "${pass}" "${KEYCHAIN}"`);
@@ -42,8 +51,9 @@ function ensureKeychain() {
     // Never auto-lock: signing must work over SSH and after reboots.
     execSync(`security set-keychain-settings -u "${KEYCHAIN}"`);
   } catch {}
+  unlockKeychain();
   // Make sure codesign finds identities from this keychain.
-  const current = execSync("security list-keychains -d keys", { encoding: "utf8" })
+  const current = execSync("security list-keychains", { encoding: "utf8" })
     .split("\n")
     .map((s) => s.trim().replace(/^"|"$/g, ""))
     .filter(Boolean);
@@ -64,7 +74,7 @@ function certExists() {
 }
 
 function ensureSigningCertificate() {
-  ensureKeychain();
+  unlockKeychain();
   if (certExists()) return;
   console.log(`Creating local code signing certificate "${CERT_NAME}"`);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "m4sign-"));
@@ -85,8 +95,7 @@ function ensureSigningCertificate() {
   );
   execSync(
     `openssl req -x509 -newkey rsa:2048 -keyout "${key}" -out "${cert}" ` +
-      `-days 3650 -nodes -subj "/CN=${CERT_NAME}" -config "${cfg}"`,
-    { stdio: "ignore" }
+      `-days 3650 -nodes -subj "/CN=${CERT_NAME}" -config "${cfg}"`
   );
   // -T pre-authorizes codesign to use the key without a GUI prompt.
   execSync(`security import "${key}" -k "${KEYCHAIN}" -T /usr/bin/codesign`, {
@@ -94,14 +103,14 @@ function ensureSigningCertificate() {
   });
   execSync(`security import "${cert}" -k "${KEYCHAIN}"`, { stdio: "ignore" });
   try {
+    // Makes the key accessible to codesign without GUI prompts (CI-safe).
     execSync(
       `security set-key-partition-list -S apple-tool:,apple: -s -k "${keychainPassword()}" "${KEYCHAIN}"`,
       { stdio: "ignore" }
     );
   } catch {}
   try {
-    // User-domain trust; if it fails headless, the signature still applies
-    // and the TCC identity remains stable.
+    // User-domain trust; if it fails headless, signing still works.
     execSync(`security add-trusted-cert -p codeSign "${cert}"`, { stdio: "ignore" });
   } catch (error) {
     console.log("add-trusted-cert skipped:", String(error).slice(0, 120));
@@ -109,12 +118,13 @@ function ensureSigningCertificate() {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-exports.default = async function afterPack(context) {
+exports.default = async function afterSign(context) {
   if (context.electronPlatformName !== "darwin") return;
   try {
+    ensureKeychain();
     ensureSigningCertificate();
   } catch (error) {
-    console.log("Signing certificate unavailable, using ad-hoc:", String(error).slice(0, 160));
+    console.log("Signing certificate unavailable, using ad-hoc:", String(error).slice(0, 200));
     return;
   }
   const appPath = path.join(
@@ -122,13 +132,29 @@ exports.default = async function afterPack(context) {
     `${context.packager.appInfo.productFilename}.app`
   );
   console.log(`Codesign (${CERT_NAME}): ${appPath}`);
-  try {
-    execSync(`codesign --force --deep --sign "${CERT_NAME}" "${appPath}"`, {
-      stdio: "inherit",
-    });
-  } catch (error) {
+  let signed = false;
+  for (let attempt = 1; attempt <= 2 && !signed; attempt++) {
+    try {
+      unlockKeychain();
+      execSync(`codesign --force --deep --sign "${CERT_NAME}" "${appPath}"`, {
+        stdio: "inherit",
+      });
+      signed = true;
+    } catch (error) {
+      console.log(`Identity sign attempt ${attempt} failed:`, String(error).slice(0, 160));
+      unlockKeychain();
+      if (attempt === 1) {
+        // A locked keychain or lost partition-list entry: unlock and retry.
+        try {
+          execSync(`security set-key-partition-list -S apple-tool:,apple: -s -k "${keychainPassword()}" "${KEYCHAIN}"`, { stdio: "ignore" });
+        } catch {}
+      }
+    }
+  }
+  if (!signed) {
     console.log("Identity signing failed; falling back to ad-hoc");
     execSync(`codesign --force --deep --sign - "${appPath}"`, { stdio: "inherit" });
+    return;
   }
   execSync(`codesign --verify --deep --strict "${appPath}"`, { stdio: "inherit" });
   console.log("Codesign ok");

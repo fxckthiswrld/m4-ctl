@@ -46,8 +46,7 @@
   },
   "build": {
     "appId": "com.munwig.m4control",
-    "afterSign": "electron/afterpack.cjs",
-    "files": [
+    "afterSign": "electron/afterpack.cjs",    "files": [
       "dist/**/*",
       "electron/**/*"
     ],
@@ -73,6 +72,7 @@
         "dmg",
         "zip"
       ],
+      "identity": null,
       "extendInfo": {
         "NSBluetoothAlwaysUsageDescription": "Momentum 4 Control connects to your Sennheiser MOMENTUM 4 headphones to configure sound settings.",
         "NSBluetoothPeripheralUsageDescription": "Momentum 4 Control connects to your Sennheiser MOMENTUM 4 headphones to configure sound settings."
