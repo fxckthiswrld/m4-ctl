@@ -16,6 +16,14 @@ ANC feature 1 is Anti-Wind (0 off, 1 max, 2 auto), feature 2 is Comfort
 (0 or 1), and feature 3 is Adaptive (0 or 1). Custom means Adaptive and
 Comfort are disabled; it is not the Anti-Wind feature ID.
 
+The transparency slider is not stored by the headphones across mode
+switches: entering Custom through the command sequence above lets the
+slider jump to 100 (full transparency), and a value set before switching
+to Adaptive and back does not survive (verified live, FW 3.38.3). The
+application therefore keeps the last confirmed Custom slider value and
+writes it (`1A02`) as the final step of switching to Custom, which is
+also what the official Smart Control app does.
+
 Success response IDs are the request ID with bit `0100` set. Error IDs have
 bits `0180` set. The M4 model also lists `1982` and `1983` as transparency
 errors, so the bridge accepts both forms as failures. Notifications use bit
