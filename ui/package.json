@@ -88,7 +88,19 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "installerIcon": "electron/icon.ico",
+      "uninstallerIcon": "electron/icon.ico"
+    },
+    "dmg": {
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "contents": [
+        { "x": 140, "y": 210, "type": "file", "path": "$APP" },
+        { "x": 400, "y": 210, "type": "link", "path": "/Applications" }
+      ]
     },
     "extraMetadata": {
       "main": "electron/main.cjs"
