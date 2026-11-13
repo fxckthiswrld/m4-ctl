@@ -83,7 +83,8 @@ export default function App() {
   const t = translations[language];
   const headphones = useHeadphones(t);
   const { bridgeReady, status, statusText, mode, antiwind,
-    transparency, setTransparency, deviceState, busy, recovering, log, connected, customControlsDisabled,
+    transparency, setTransparency, transparentHearing, setTransparentHearing: setTransparentHearingEnabled,
+    deviceState, busy, recovering, log, connected, customControlsDisabled,
     setAmbientMode, setAntiwindLevel,
     commitTransparencyLevel, onInteractionChange } = headphones;
   const [tab, setTab] = React.useState<"controls" | "settings" | "diagnostics">("controls");
@@ -203,6 +204,15 @@ export default function App() {
             active={mode === "off"}
             disabled={!connected || busy || recovering}
             onClick={() => setAmbientMode("off")}
+          />
+        </div>
+        <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-3">
+          <span className="text-xs font-medium text-muted-foreground">{t.transparentHearing}</span>
+          <Toggle
+            aria-label={t.transparentHearing}
+            checked={transparentHearing ?? false}
+            disabled={!connected || busy || recovering}
+            onChange={setTransparentHearingEnabled}
           />
         </div>
       </Section>

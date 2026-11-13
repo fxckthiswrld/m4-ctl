@@ -98,7 +98,7 @@
         "height": 380
       },
       "contents": [
-        { "x": 140, "y": 210, "type": "file", "path": "$APP" },
+        { "x": 140, "y": 210, "type": "file" },
         { "x": 400, "y": 210, "type": "link", "path": "/Applications" }
       ]
     },

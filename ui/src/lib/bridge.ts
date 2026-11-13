@@ -20,6 +20,7 @@ export type BridgeCommand =
   | { cmd: "get" }
   | { cmd: "info" }
   | { cmd: "anc"; state: "on" | "off" }
+  | { cmd: "transparent_hearing"; state: "on" | "off" }
   | { cmd: "mode"; mode: "adaptive" | "comfort" | "anti_wind" | "off" }
   | { cmd: "custom"; level?: number }
   | { cmd: "antiwind"; level: number }
@@ -33,6 +34,7 @@ export interface CommandResults {
   get: StateResult;
   info: DeviceInfo;
   anc: { anc: string };
+  transparent_hearing: { transparent_hearing: string };
   mode: { mode: string };
   custom: { mode: string };
   antiwind: { antiwind: number };
@@ -54,6 +56,8 @@ export interface BridgeEvent {
     | "unreachable"
     | "notification"
     | "device-mode"
+    | "transparency-level"
+    | "transparent-hearing"
     | "operation-complete";
   error?: string;
   cancelled?: boolean;
@@ -61,6 +65,8 @@ export interface BridgeEvent {
   id?: string;
   payload?: string;
   mode?: string;
+  level?: number;
+  enabled?: boolean;
 }
 export interface DesktopState {
   language: "en" | "ru";

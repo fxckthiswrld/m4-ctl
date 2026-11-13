@@ -97,9 +97,14 @@ LEGACY_ERROR_COMMANDS = (0x1A02, 0x1A03)
 # transparent hearing 12. Verified on hardware: audio curation delivers
 # notification 0x0482 with the new mode as a single byte.
 REGISTER_NOTIFICATION_CMD = 0x0007
-REGISTER_NOTIFICATION_FEATURES = (0x00, 0x02, 0x03, 0x12)
+# 0x01/0x04/0x05 are probe candidates for the transparency features; failures
+# are tolerated and logged on every (re)connect.
+REGISTER_NOTIFICATION_FEATURES = (0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x12)
 # Audio curation mode notification: single byte, same enum as ANC modes.
 DEVICE_MODE_NOTIFICATION = 0x0482
+# Gesture-driven transparency updates (m4.json Event sections).
+TRANSPARENCY_LEVEL_NOTIFICATION = 0x1A83
+TRANSPARENT_HEARING_NOTIFICATION = 0x1885
 
 ANC_MODES = {0: "OFF", 1: "ANTI_WIND", 2: "COMFORT", 3: "ADAPTIVE"}
 MODE_NAMES = {v.lower(): k for k, v in ANC_MODES.items()}
@@ -230,6 +235,12 @@ class Bridge:
                             # Verified on hardware: the device pushes the new
                             # ANC mode byte when a gesture changes it.
                             self.on_event({"event": "device-mode", "mode": ANC_MODES[parsed["payload"][0]].lower()})
+                        if parsed["cmd"] == TRANSPARENCY_LEVEL_NOTIFICATION and len(parsed["payload"]) == 1:
+                            # Spread/pinch gestures change the slider level.
+                            self.on_event({"event": "transparency-level", "level": parsed["payload"][0]})
+                        if parsed["cmd"] == TRANSPARENT_HEARING_NOTIFICATION and len(parsed["payload"]) == 1:
+                            # The double-tap transparency toggle.
+                            self.on_event({"event": "transparent-hearing", "enabled": parsed["payload"][0] == 1})
                     elif parsed["cmd"] & 0x0100 or parsed["cmd"] & 0x0180:
                         # A response for a command that has not registered yet
                         # (the pump consumed a whole burst): keep it briefly.
@@ -554,6 +565,13 @@ class Bridge:
             await self._reconnect_now()
         return {"connected": True, "addr": self.addr}
 
+    async def cmd_transparent_hearing(self, state: str):
+        if state not in ("on", "off"):
+            raise ValueError("invalid transparent hearing state")
+        val = 1 if state == "on" else 0
+        await self._gaia(gaia_frame(0x1804, bytes([val])))
+        return {"transparent_hearing": "ON" if val else "OFF"}
+
     async def cmd_anc(self, state: str):
         if state not in ("on", "off"):
             raise ValueError("invalid ANC state")
@@ -763,6 +781,8 @@ async def dispatch(bridge: Bridge, msg: dict, deadline_ms=None):
         return await bridge.cmd_connect(msg.get("addr", ""))
     if cmd == "anc":
         return await bridge.cmd_anc(msg.get("state", "off"))
+    if cmd == "transparent_hearing":
+        return await bridge.cmd_transparent_hearing(msg.get("state", "off"))
     if cmd == "mode":
         return await bridge.cmd_mode(msg.get("mode", "adaptive"), deadline_ms)
     if cmd == "custom":

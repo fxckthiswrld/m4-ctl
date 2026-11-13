@@ -309,8 +309,11 @@ class BridgeTransportTests(unittest.IsolatedAsyncioTestCase):
             second.sent,
             [
                 gaia_frame(0x0007, b"\x00"),
+                gaia_frame(0x0007, b"\x01"),
                 gaia_frame(0x0007, b"\x02"),
                 gaia_frame(0x0007, b"\x03"),
+                gaia_frame(0x0007, b"\x04"),
+                gaia_frame(0x0007, b"\x05"),
                 gaia_frame(0x0007, b"\x12"),
                 gaia_frame(0x1A04, b"\x01"),
             ],
@@ -382,6 +385,17 @@ class BridgeTransportTests(unittest.IsolatedAsyncioTestCase):
                 {"name": "sennheiser BTD 800", "address": "11:11:11:11:11:11"},
             ],
         )
+
+    async def test_transparent_hearing_set(self):
+        transport = FakeTransport()
+        bridge = Bridge()
+        bridge.addr = "AA:BB:CC:DD:EE:FF"
+        bridge.tr = transport
+
+        result = await bridge.cmd_transparent_hearing("on")
+
+        self.assertEqual(result, {"transparent_hearing": "ON"})
+        self.assertEqual(transport.sent, [gaia_frame(0x1804, b"\x01")])
 
     async def test_get_keeps_state_slots_when_a_response_is_missing(self):
         response = spp_frame(gaia_frame(0x1B05, b"\x01"))
@@ -731,8 +745,11 @@ class BridgeTransportTests(unittest.IsolatedAsyncioTestCase):
             transport.sent,
             [
                 gaia_frame(0x0007, b"\x00"),
+                gaia_frame(0x0007, b"\x01"),
                 gaia_frame(0x0007, b"\x02"),
                 gaia_frame(0x0007, b"\x03"),
+                gaia_frame(0x0007, b"\x04"),
+                gaia_frame(0x0007, b"\x05"),
                 gaia_frame(0x0007, b"\x12"),
             ],
         )
