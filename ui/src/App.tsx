@@ -218,7 +218,9 @@ export default function App() {
                   key={l.value}
                   variant={antiwind === l.value ? "default" : "secondary"}
                   aria-pressed={antiwind === l.value}
-                  disabled={customControlsDisabled}
+                  // Anti-Wind applies in every mode (Adaptive included) — only
+                  // the transparency slider is Custom-specific.
+                  disabled={!connected || busy || recovering}
                   onClick={() => setAntiwindLevel(l.value)}
                   className={cn(
                     "rounded-full",

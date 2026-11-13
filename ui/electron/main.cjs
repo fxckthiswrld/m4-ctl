@@ -117,6 +117,9 @@ function startBridge() {
         recordBridgeLog(`[bridge] scan failed: ${error.message}`);
       }
     }
+    // Last candidate is still spawned when nothing resolves: the ENOENT
+    // error then names the expected location instead of "undefined".
+    executable = executable ?? candidates[candidates.length - 1];
     recordBridgeLog(`[bridge] resources=${process.resourcesPath} candidates=${JSON.stringify(
       candidates.map((c) => `${fs.existsSync(c) ? "+" : "-"}${c}`)
     )} resolved=${executable}`);
