@@ -405,11 +405,12 @@ async function runTests() {
     mock.reply(await next("get"), undefined, "no acknowledgement");
     await flush();
   }
-  assert.deepEqual(mock.retryDelays.slice(-3), [15000, 30000, 60000]);
-  assert.equal(mock.hasRetry(), false, "failed state reads must not reset the retry budget");
+  assert.deepEqual(mock.retryDelays.slice(-4, -1), [15000, 30000, 60000]);
+  assert.equal(mock.retryDelays.at(-1), 60000, "retries continue capped at 60 seconds");
+  assert.equal(mock.hasRetry(), true, "automatic retries never give up");
   assert.match(document.body.textContent, /no acknowledgement/);
 
-  // Resume reconnects even after the retry budget is exhausted.
+  // Resume reconnects even while slow retries continue.
   mock.action({ action: "suspend" });
   await flush();
   mock.action({ action: "resume" });

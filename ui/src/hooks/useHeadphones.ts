@@ -11,7 +11,6 @@ export function useHeadphones(t: Translations) {
   const [info, setInfo] = React.useState<DeviceInfo | null>(null);
   const [mode, setMode] = React.useState<AmbientMode | "comfort" | null>(null);
   const [antiwind, setAntiwind] = React.useState<string | null>(null);
-  const [transparentHearing, setTransparentHearing] = React.useState<boolean | null>(null);
   const [transparency, setTransparency] = React.useState(0);
   const [log, setLog] = React.useState<string[]>([]);
   const [working, setWorking] = React.useState(false);
@@ -36,7 +35,7 @@ export function useHeadphones(t: Translations) {
     revision.current++;
     adjusting.current = false;
     window.clearTimeout(notificationTimer.current);
-    setDeviceState(null); setMode(null); setAntiwind(null); setTransparency(0); setTransparentHearing(null);
+    setDeviceState(null); setMode(null); setAntiwind(null); setTransparency(0);
   }
   function reset() {
     session.current++;
@@ -50,7 +49,6 @@ export function useHeadphones(t: Translations) {
     const wind = state.mode?.antiwind;
     setAntiwind(typeof wind === "number" && [0, 1, 2].includes(wind) ? String(wind) : null);
     setTransparency(state.transparency?.level ?? 0);
-    setTransparentHearing(state.transparent_hearing?.enabled ?? null);
     // Remember the slider as reported while Custom is active: switching modes
     // back later must restore exactly this value (like the official app).
     const level = state.transparency?.level;
@@ -77,19 +75,16 @@ export function useHeadphones(t: Translations) {
       }
       return;
     }
-    if (event.event === "transparency-level" && typeof event.level === "number") {
-      // A spread/pinch gesture changed the slider on the headphones.
-      setTransparency(event.level);
+    if (event.event === "device-mode" && typeof event.mode === "string") {
+      const mapped = event.mode === "anti_wind" ? "custom" : event.mode;
+      if (["adaptive", "custom", "off", "comfort"].includes(mapped)) {
+        setMode(mapped as AmbientMode | "comfort");
+      }
       return;
     }
-    if (event.event === "transparent-hearing" && typeof event.enabled === "boolean") {
-      // The double-tap transparency toggle.
-      setTransparentHearing(event.enabled);
-      return;
-    }
-    // Device-side changes (ANC button, wear detection) arrive as GAIA
-    // notifications: refresh the state shortly after instead of waiting for
-    // the poll cycle. The background guard in readState skips collisions.
+    // Gesture notifications (transparency level, transparent hearing, ANC
+    // mode) all arrive here: a debounced full state read refreshes every
+    // control and remembers the Custom slider value.
     if (event.event === "notification") {
       window.clearTimeout(notificationTimer.current);
       notificationTimer.current = window.setTimeout(() => {
@@ -201,8 +196,6 @@ export function useHeadphones(t: Translations) {
   };
   const commitTransparencyLevel = (value: number) => change({ cmd: "transparency", level: value }, () => setTransparency(value));
   const applyProfile = (profile: ProfileSettings) => change({ cmd: "profile", mode: profile.mode, antiwind: profile.antiwind, transparency: profile.transparency });
-  const setTransparentHearingEnabled = (enabled: boolean) =>
-    change({ cmd: "transparent_hearing", state: enabled ? "on" : "off" }, () => setTransparentHearing(enabled));
   const onInteractionChange = (value: boolean) => { adjusting.current = value; if (value) revision.current++; };
 
   const actions = React.useRef({ connect, readState, readInfo });
@@ -225,7 +218,9 @@ export function useHeadphones(t: Translations) {
   }, [status]);
 
   React.useEffect(() => {
-    if (status !== "error" || suspended.current || retryAttempt.current >= 3) return;
+    if (status !== "error" || suspended.current) return;
+    // Never give up: the headphones may be held by another device; keep
+    // retrying with a growing delay capped at 60 seconds.
     const timer = window.setTimeout(() => {
       void actions.current.connect();
     }, Math.min(15000 * 2 ** retryAttempt.current++, 60000));
@@ -241,9 +236,8 @@ export function useHeadphones(t: Translations) {
 
   const connected = status === "connected";
   const busy = working || bridge.busy;
-  return { status, statusText, transparentHearing, deviceState, info, mode, antiwind,
+  return { status, statusText, deviceState, info, mode, antiwind,
     transparency, setTransparency, log, pushLog, bridgeReady: bridge.ready, recovering: bridge.recovering,
     busy, connected, customControlsDisabled: !connected || busy || bridge.recovering || mode !== "custom",
-    setAmbientMode, setAntiwindLevel, commitTransparencyLevel, setTransparentHearing: setTransparentHearingEnabled,
-    onInteractionChange, applyProfile, suspend, resume };
+    setAmbientMode, setAntiwindLevel, commitTransparencyLevel, onInteractionChange, applyProfile, suspend, resume };
 }
