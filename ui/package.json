@@ -1,7 +1,7 @@
 {
   "name": "m4-control",
   "productName": "Momentum 4 Control",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Momentum 4 — GAIA3 SPP control (Electron + Python bridge)",
   "main": "electron/main.cjs",
   "scripts": {
@@ -22,27 +22,27 @@
   "dependencies": {
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
-    "lucide-react": "^0.454.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tailwind-merge": "^2.5.3"
+    "lucide-react": "^1.72.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.7.4",
-    "@types/react": "^18.3.10",
-    "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.2",
-    "autoprefixer": "^10.4.20",
-    "concurrently": "^9.0.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "autoprefixer": "^10.6.2",
+    "concurrently": "^10.0.7",
     "cross-env": "^10.1.0",
-    "electron": "^32.1.2",
-    "electron-builder": "^25.1.8",
-    "postcss": "^8.4.47",
+    "electron": "^45.3.2",
+    "electron-builder": "^26.18.0",
+    "postcss": "^8.5.32",
     "tailwindcss": "^3.4.13",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.6.2",
-    "vite": "^5.4.8",
-    "wait-on": "^8.0.1"
+    "vite": "^8.3.8",
+    "wait-on": "^9.5.1"
   },
   "build": {
     "appId": "com.munwig.m4control",
@@ -98,8 +98,17 @@
         "height": 380
       },
       "contents": [
-        { "x": 140, "y": 210, "type": "file" },
-        { "x": 400, "y": 210, "type": "link", "path": "/Applications" }
+        {
+          "x": 140,
+          "y": 210,
+          "type": "file"
+        },
+        {
+          "x": 400,
+          "y": 210,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "extraMetadata": {
