@@ -1,6 +1,5 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+﻿@import "tailwindcss";
+@config "../tailwind.config.mjs";
 
 @layer base {
   :root {
@@ -39,7 +38,7 @@
   }
 }
 
-/* скроллбар под тёмную тему */
+/* ÑÐºÑ€Ð¾Ð»Ð»Ð±Ð°Ñ€ Ð¿Ð¾Ð´ Ñ‚Ñ‘Ð¼Ð½ÑƒÑŽ Ñ‚ÐµÐ¼Ñƒ */
 ::-webkit-scrollbar {
   width: 6px;
 }
