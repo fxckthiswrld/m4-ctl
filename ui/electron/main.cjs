@@ -96,7 +96,30 @@ function startBridge() {
     }
     // Legacy onefile layout.
     candidates.push(path.join(process.resourcesPath, "bridge", bridgeName));
-    const executable = candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[candidates.length - 1];
+    let executable = candidates.find((candidate) => fs.existsSync(candidate));
+    if (!executable) {
+      // existsSync has been observed to miss the packaged binary inside a
+      // replaced app bundle: scan the bridge folder recursively instead.
+      try {
+        const root = path.join(process.resourcesPath, "bridge");
+        const stack = [root];
+        while (stack.length) {
+          const dir = stack.pop();
+          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) stack.push(full);
+            else if (entry.name === bridgeName) { executable = full; break; }
+          }
+          if (executable) break;
+        }
+        recordBridgeLog(`[bridge] scan found: ${executable ?? "nothing"}`);
+      } catch (error) {
+        recordBridgeLog(`[bridge] scan failed: ${error.message}`);
+      }
+    }
+    recordBridgeLog(`[bridge] resources=${process.resourcesPath} candidates=${JSON.stringify(
+      candidates.map((c) => `${fs.existsSync(c) ? "+" : "-"}${c}`)
+    )} resolved=${executable}`);
     const options = {
       cwd: process.resourcesPath,
       shell: false,
