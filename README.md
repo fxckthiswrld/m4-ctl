@@ -130,4 +130,4 @@ empirically and may differ between firmware versions. Use at your own risk.
 
 ## License
 
-MIT
+[MIT License](LICENSE)
