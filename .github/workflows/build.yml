@@ -16,7 +16,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: useblacksmith/checkout@v1
 
       - name: Set up Python
         uses: astral-sh/setup-uv@v5
